@@ -7,34 +7,41 @@
 #include "MBIRModularUtils.h"
 #include "icd3d.h"
 
-	
+/*	
 float ICDStep3D(struct ReconParams reconparams,float THETA1,float THETA2,float tempV,float *neighbors)
 {
-    float step=QGGMRF3D_Update(reconparams,tempV,neighbors,THETA1,THETA2);
+    float step=QGGMRF3D_Update(reconparams.priorparams,tempV,neighbors,THETA1,THETA2);
     float UpdatedVoxelValue = tempV + step;
 
     return UpdatedVoxelValue;
 }
+*/
 
 /* Plug & Play update w/ proximal map prior */
-float PandP_Update(struct ReconParams reconparams,float tempV,float tempProxMap,float THETA1,float THETA2)
+void PandP_Update(float SigmaPnPsq, float tempV,float tempProxMap,float *THETA1,float *THETA2)
 {
-    float SigmaXsq = reconparams.SigmaXsq;
-    return(-(SigmaXsq*THETA1 + tempV - tempProxMap) / (SigmaXsq*THETA2 + 1.0));
+    /*
+    float SigmaPnPsq = reconparams.SigmaPnPsq;
+    return(-(SigmaPnPsq*THETA1 + tempV - tempProxMap) / (SigmaPnPsq*THETA2 + 1.0));
+    */
+    *THETA1 += (tempV - tempProxMap)/SigmaPnPsq;
+    *THETA2 += 1.0f/SigmaPnPsq;
+
+    //return(-THETA1/THETA2);
 }
 
 /* ICD update with the QGGMRF prior model */
 /* Prior and neighborhood specific */
-float QGGMRF3D_Update(struct ReconParams reconparams,float tempV, float *neighbors,float THETA1,float THETA2)
+void QGGMRF3D_Update(struct PriorParams priorparams,float tempV, float *neighbors,float *THETA1,float *THETA2)
 {
     int j; /* Neighbor relative position to Pixel being updated */
     float sum1_Nearest=0, sum1_Diag=0, sum1_Interslice=0; /* for theta1 calculation */
     float sum2_Nearest=0, sum2_Diag=0, sum2_Interslice=0; /* for theta2 calculation */
     float b_nearest, b_diag, b_interslice;
     
-    b_nearest=reconparams.b_nearest;
-    b_diag=reconparams.b_diag;
-    b_interslice = reconparams.b_interslice;
+    b_nearest=priorparams.b_nearest;
+    b_diag=priorparams.b_diag;
+    b_interslice = priorparams.b_interslice;
 
     float delta[10];
     float SurrogateCoeff[10];
@@ -43,7 +50,7 @@ float QGGMRF3D_Update(struct ReconParams reconparams,float tempV, float *neighbo
         delta[j] = tempV - neighbors[j];
     
     for (j = 0; j < 10; j++)
-        SurrogateCoeff[j] = QGGMRF_SurrogateCoeff(delta[j],reconparams);
+        SurrogateCoeff[j] = QGGMRF_SurrogateCoeff(delta[j],priorparams);
 
     #pragma vector aligned											
     for (j = 0; j < 10; j++)
@@ -66,25 +73,26 @@ float QGGMRF3D_Update(struct ReconParams reconparams,float tempV, float *neighbo
         
     }
     
-    THETA1 +=  (b_nearest * sum1_Nearest + b_diag * sum1_Diag + b_interslice * sum1_Interslice) ;
-    THETA2 +=  (b_nearest * sum2_Nearest + b_diag * sum2_Diag + b_interslice * sum2_Interslice) ;
-    return(-THETA1/THETA2);
+    *THETA1 +=  (b_nearest * sum1_Nearest + b_diag * sum1_Diag + b_interslice * sum1_Interslice) ;
+    *THETA2 +=  (b_nearest * sum2_Nearest + b_diag * sum2_Diag + b_interslice * sum2_Interslice) ;
+    
+    //return(-THETA1/THETA2);
     
 }
 
 
 /* the potential function of the QGGMRF prior model.  p << q <= 2 */
-float QGGMRF_Potential(float delta, struct ReconParams *reconparams)
+float QGGMRF_Potential(float delta, struct PriorParams priorparams)
 {
     float p, q, T, SigmaX;
     float temp, GGMRF_Pot;
     
-    p = reconparams->p;
-    q = reconparams->q;
-    T = reconparams->T;
-    SigmaX = reconparams->SigmaX;
+    p = priorparams.p;
+    q = priorparams.q;
+    T = priorparams.T;
+    SigmaX = priorparams.SigmaX;
     
-    GGMRF_Pot = pow(fabs(delta),p)/(p*reconparams->pow_sigmaX_p);
+    GGMRF_Pot = pow(fabs(delta),p)/(p*priorparams.pow_sigmaX_p);
     temp = pow(fabs(delta/(T*SigmaX)), q-p);
     
     return ( GGMRF_Pot * temp/(1.0+temp) );
@@ -99,19 +107,19 @@ float QGGMRF_Potential(float delta, struct ReconParams *reconparams)
 /* Return this coefficient a(delta_p) */
 /* Prior-model specific, independent of neighborhood */
 
-float QGGMRF_SurrogateCoeff(float delta, struct ReconParams reconparams)
+float QGGMRF_SurrogateCoeff(float delta, struct PriorParams priorparams)
 {
     float p, q, T, SigmaX, qmp;
     float num, denom, temp;
     float fabs_delta;
     
-    p = reconparams.p;
-    q = reconparams.q;
-    T = reconparams.T;
-    SigmaX = reconparams.SigmaX;
-    float pow_sigmaX_p = reconparams.pow_sigmaX_p;
-    float pow_sigmaX_q = reconparams.pow_sigmaX_q;
-    float pow_T_qmp = reconparams.pow_T_qmp;
+    p = priorparams.p;
+    q = priorparams.q;
+    T = priorparams.T;
+    SigmaX = priorparams.SigmaX;
+    float pow_sigmaX_p = priorparams.pow_sigmaX_p;
+    float pow_sigmaX_q = priorparams.pow_sigmaX_q;
+    float pow_T_qmp = priorparams.pow_T_qmp;
     qmp = q - p;
     fabs_delta=(float)fabs(delta);
     
@@ -129,7 +137,7 @@ float QGGMRF_SurrogateCoeff(float delta, struct ReconParams reconparams)
 }
 
 
-void ExtractNeighbors3D(
+void ExtractNeighbors_WithinSlice(
 	float *neighbors,
 	int jx,
 	int jy,
