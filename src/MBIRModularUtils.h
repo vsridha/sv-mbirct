@@ -25,11 +25,18 @@ int ReadReconParams(
 	char *basename,			/* Source base filename, i.e. <basename>.reconparams */
 	struct ReconParams *reconparams);  /* Reconstruction parameters data structure */
 
+
+/* Utility for reading prior parameter files */
+/* Returns 0 if no error occurs */
+int ReadPriorParams(
+	char *basename,				      /* Source base filename, i.e. <basename>.reconparams */
+	struct ReconParams *reconparams); /* Reconstruction parameters data structure */
+
 /* Parameter printing utilities */
 void printImageParams3D(struct ImageParams3D *imgparams);
 void printSinoParams3DParallel(struct SinoParams3DParallel *sinoparams);
+void printReconParams(struct ReconParams *reconparams);
 void printReconParamsQGGMRF3D(struct ReconParams *reconparams);
-void printReconParamsPandP(struct ReconParams *reconparams);
 
 
 /*******************************/

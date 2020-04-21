@@ -13,9 +13,14 @@
 #define MBIR_MODULAR_IMAGETYPE_3D 1
 #define MBIR_MODULAR_IMAGETYPE_4D 2	/* for future implementation */
 
+/*
 #define MBIR_MODULAR_RECONTYPE_QGGMRF_2D 0
 #define MBIR_MODULAR_RECONTYPE_QGGMRF_3D 1
 #define MBIR_MODULAR_RECONTYPE_PandP 2
+*/
+
+#define MBIR_MAP_ESTIMATION 1
+#define MBIR_PnP_PRIORS 2
 
 #define MBIR_MODULAR_YES 1
 #define MBIR_MODULAR_NO 0
@@ -26,6 +31,9 @@
 #define mu2hu(Mu, MuAir, MuWater) (1000.0*(Mu-MuAir)/(MuWater-MuAir)) /* (mm^-1) to HU units conversion */
 #define hu2mu(HU, MuAir, MuWater) (HU*(MuWater-MuAir)/1000.0)+MuAir   /* (mm^-1) to HU units conversion */
 
+#define PRIOR_TYPE_QGGMRF 1
+#define PRIOR_TYPE_BM3D 2
+#define PRIOR_TYPE_CNN 3
 
 /* The following utilities are used for managing data structures and files associated */
 /* with the Modular MBIR Framework */
@@ -79,10 +87,37 @@ struct Image3D
 };
 
 
+struct PriorParams
+{
+  /*---Specific to QGGMRF---*/
+  double p;               /* q-GGMRF p parameter */
+  double q;               /* q-GGMRF q parameter (q=2 is typical choice) */
+  double T;               /* q-GGMRF T parameter */
+  double SigmaX;          /* q-GGMRF sigma_x parameter (mm-1) */
+  /* neighbor weights */
+  double b_nearest;       /* Relative nearest neighbor weight [default = 1] */
+  double b_diag;          /* Relative diagonal neighbor weight in (x,y) plane [default = 1/sqrt(2)] */
+  double b_interslice;    /* Relative neighbor weight along z direction [default = 1] */
+  /* derived from basic parameters */
+  double SigmaXsq;        /* derived parameter: SigmaX^2 */
+  double pow_sigmaX_p;    /* pow(sigmaX,p) */
+  double pow_sigmaX_q;    /* pow(sigmaX,q) */
+  double pow_T_qmp;       /* pow(T,q-p) */
+
+  /*--Specific to BM3D/BM4D and Res-net CNN--*/
+  double QuantLevel_lower; /* Denoiser input must be normalized to (0,1). Lower and upper range in image that map to 0 and 1 values */ 
+  double QuantLevel_upper; 
+  double Sigma_n;          /* on a scale of 0-->255 */
+
+  /* others */
+  char   DataDir[200];     /* Directory where denoiser-routine (Python script that is external to C executable) accesses input / output */ 
+
+
+};
+
 /* Reconstruction Parameters Data Structure */
 struct ReconParams
 {
-  char ReconType;         /* 1:QGGMRF_3D, 2:PandP */
   /* General parameters */
   double InitImageValue;  /* Initial Condition pixel value. In our examples usually chosen as ... */
   double StopThreshold;   /* Stopping threshold in percent */
@@ -91,26 +126,21 @@ struct ReconParams
   /* sinogram weighting */
   double SigmaY;          /* Scaling constant for sinogram weights (e.g. W=exp(-y)/SigmaY^2 ) */
   int weightType;         /* How to compute weights if internal, 0: =1 (default); 1: exp(-y); 2: exp(-y/2) */
-  /* neighbor weights */
-  double b_nearest;       /* Relative nearest neighbor weight [default = 1] */
-  double b_diag;          /* Relative diagonal neighbor weight in (x,y) plane [default = 1/sqrt(2)] */
-  double b_interslice;    /* Relative neighbor weight along z direction [default = 1] */
-  /* QGGMRF */
-  double p;               /* q-GGMRF p parameter */
-  double q;               /* q-GGMRF q parameter (q=2 is typical choice) */
-  double T;               /* q-GGMRF T parameter */
-  double SigmaX;          /* q-GGMRF sigma_x parameter (mm-1) */
-  /* QGGMRF derived parameters */
-  double pow_sigmaX_p;    /* pow(sigmaX,p) */
-  double pow_sigmaX_q;    /* pow(sigmaX,q) */
-  double pow_T_qmp;       /* pow(T,q-p) */
-  /* Proximal map prior for Plug & Play */
-  //double SigmaX;        /* sigma_x parameter (mm-1) (same field name already included for QGGMRF above) */
-  double SigmaXsq;        /* derived parameter: SigmaX^2 */
+
+  char MBIRMode[50];     /* conventional or PnP */
+  char PriorModel[50];   /* prior model: QGGMRF, BM3D or Res-CNN. */
+
+  struct PriorParams priorparams;    /* paramters for prior model */ 
+
+  double SigmaPnP;
+  double RhoPnP;
+
+  /* initialized and maintained when reconstruction is initiated */
   float **proximalmap;    /* ptr to 3D proximal map image; here to carry it to the ICD update */
+
+  /* derived */
+  double SigmaPnPsq;
 };
-
-
 
 
 /* 2D Sinogram Data Structure */
