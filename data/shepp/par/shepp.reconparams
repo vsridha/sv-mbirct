@@ -1,0 +1,11 @@
+InitImageValue: 0.002
+SigmaY: 1.0
+StopThreshold: 0.01
+MaxIterations: 20
+Positivity: 1
+## For MBIRMode type "conventional" or "PnP". For PriorModel type "QGGMRF" or "BM3D":
+MBIRMode: PnP
+PriorModel: BM3D
+## Don't bother if MBIRMode is not PnP:
+SigmaPnP: 0.04 
+RhoPnP: 0.8 

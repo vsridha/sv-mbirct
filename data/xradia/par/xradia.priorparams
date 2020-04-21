@@ -1,0 +1,12 @@
+## QGGMRF parameters:
+p: 1.2
+q: 2.0
+T: 1.0
+SigmaX: 16.0
+b_nearest: 1.0
+b_diag: 0.707
+b_interslice: 1.0
+## BM3D parameters. Lower and upper bounds for image (units mm^-1), noise level (scale of 0 to 255): 
+quant_lower: 0
+quant_upper: 50.0
+Sigma_n: 15.0
