@@ -26,5 +26,7 @@ void forwardProject2D(
 	struct ImageParams3D *imgparams,
 	struct SVParams svpar);
 
+/* Separated this out since QGGMRF can be used in plug-n-play mode */
+float QGGMRFCostFunction3D(float **x, struct PriorParams priorparams, struct ImageParams3D imgparams);
 
 #endif

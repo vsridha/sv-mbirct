@@ -16,7 +16,9 @@
 #include "A_comp.h"
 #include "initialize.h"
 #include "recon3d.h"
+#include "pnp_denoiser.h"
 
+/* Parameters for NH-updates */
 #define  c_ratio 0.07
 #define convergence_rho 0.7
 
@@ -29,7 +31,13 @@ void super_voxel_recon(int jj,struct SVParams svpar,unsigned long *NumUpdates,fl
 void coordinateShuffle(int *order1, int *order2,int len);
 void three_way_shuffle(int *order1, int *order2,struct heap_node *headNodeArray,int len);
 float MAPCostFunction3D(float **e,struct Image3D *Image,struct Sino3DParallel *sinogram,struct ReconParams *reconparams);
+void MannUpdate(float **img_current, float **img_previous, float Rho, struct ImageParams3D *imgparams);
+void Reflect(float **img_reflected, float **img_in, float **img_ref, struct ImageParams3D *imgparams);
 
+void MAP_Inversion_ICD_SingleIteration(int MBIRMode, float **e, float **w, struct SinoParams3DParallel sinoparams, struct Image3D *Image, \
+	struct ReconParams reconparams, struct AValues_char **A_Padded_Map, float *max_num_pointer, struct SVParams svpar, int it, int *phaseMap, \
+	int group_id_list[][4], int *order, int *indexList, struct heap_node *headNodeArray, 	int rep_num, int repnum_factor, int indexList_size, \
+	float *voxelsBuffer1, float *voxelsBuffer2, unsigned long *NumUpdates_ext, float *totalValue_ext, float *totalChange_ext);
 
 void MBIRReconstruct3D(
 	struct Image3D *Image,
@@ -53,13 +61,11 @@ void MBIRReconstruct3D(
 	float totalValue=0,totalChange=0,equits=0;
 	float avg_update,avg_update_rel;
 
-	struct heap priorityheap;
-	initialize_heap(&priorityheap);
 	int *order;
 	struct timeval tm1,tm2;
 
-	x = Image->image;   /* x is the image vector */
-	y = sinogram->sino;  /* y is the sinogram vector */
+	x = Image->image;     /* x is the image vector */
+	y = sinogram->sino;   /* y is the sinogram vector */
 	w = sinogram->weight; /* vector of weights for each sinogram measurement */
 	int Nx = Image->imgparams.Nx;
 	int Ny = Image->imgparams.Ny;
@@ -76,39 +82,84 @@ void MBIRReconstruct3D(
 	int SVsPerLine = svpar.SVsPerLine;
 	int sum = svpar.Nsv;
 	int pieceLength = svpar.pieceLength;
-	struct minStruct * bandMinMap = svpar.bandMinMap;
-	struct maxStruct * bandMaxMap = svpar.bandMaxMap;
+	struct minStruct * bandMinMap = svpar.bandMinMap; /* for each SV, sinogram-trace that lower-bounds that of entire SV */
+	struct maxStruct * bandMaxMap = svpar.bandMaxMap; /* for each SV, sinogram-trace that upper-bounds that of entire SV */
+	
+	/* Added */
+	int MBIRMode = (strcmp(reconparams.MBIRMode, "conventional")==0) ? MBIR_MAP_ESTIMATION : ( (strcmp(reconparams.MBIRMode, "PnP")==0) ? MBIR_PnP_PRIORS:-1);
+	int PriorModel;
+	int jz,jxy,subit=0,repnum_factor=1,group=0,positivity_flag;
+	float RhoPnP,residue;
+	struct Image3D W, W_prev, V, Z;
+	struct Image3D *X; 
+	struct ImageParams3D *imgparams=&(Image->imgparams);
 
-	int rep_num=(int)ceil(1/(4*c_ratio*convergence_rho));
+	if(MBIRMode==MBIR_PnP_PRIORS)
+	{
+		/* Assign pointer*/
+		X=Image;
+
+		/* Allocate memory */
+		W.imgparams.Nx = Nx;
+		W.imgparams.Ny = Ny;
+		W.imgparams.Nz = Nz;
+		W.imgparams.FirstSliceNumber = imgparams->FirstSliceNumber;
+		W.imgparams.NumSliceDigits   = imgparams->NumSliceDigits;
+		AllocateImageData3D(&W);
+
+		W_prev.imgparams.Nx = Nx;
+		W_prev.imgparams.Ny = Ny;
+		W_prev.imgparams.Nz = Nz;
+		W_prev.imgparams.FirstSliceNumber = imgparams->FirstSliceNumber;
+		W_prev.imgparams.NumSliceDigits   = imgparams->NumSliceDigits;
+		AllocateImageData3D(&W_prev);
+
+		V.imgparams.Nx = Nx;
+		V.imgparams.Ny = Ny;
+		V.imgparams.Nz = Nz;
+		V.imgparams.FirstSliceNumber = imgparams->FirstSliceNumber;
+		V.imgparams.NumSliceDigits   = imgparams->NumSliceDigits;
+		AllocateImageData3D(&V);
+
+		Z.imgparams.Nx = Nx;
+		Z.imgparams.Ny = Ny;
+		Z.imgparams.Nz = Nz;
+		Z.imgparams.FirstSliceNumber = imgparams->FirstSliceNumber;
+		Z.imgparams.NumSliceDigits   = imgparams->NumSliceDigits;
+		AllocateImageData3D(&Z);
+
+		/* Initialize */
+		for(jz=0;jz<Nz;jz++)
+		{
+			memcpy(W.image[jz],Image->image[jz],Nxy*sizeof(float));
+			memcpy(W_prev.image[jz],Image->image[jz],Nxy*sizeof(float));
+			memcpy(V.image[jz],Image->image[jz],Nxy*sizeof(float));
+			/* Z initialized later */
+		}
+
+		if(strcmp(reconparams.PriorModel, "QGGMRF")==0)
+			PriorModel = PRIOR_TYPE_QGGMRF;
+		else if(strcmp(reconparams.PriorModel, "BM3D")==0)
+			PriorModel = PRIOR_TYPE_BM3D;
+		else
+		{
+			fprintf(stderr, "Error: PriorModel %s not recognized \n", reconparams.PriorModel);
+			exit(-1);
+		}
+	}
+
+	int rep_num=(int)ceil(1/(4*c_ratio*convergence_rho));  /* this is 5 for the parameters defined above */		
 
         for(j=0;j<Nxy;j++)
         if(ImageReconMask[j])
                 NumMaskVoxels++;
-
-	#if 0
-	//#ifdef find_RMSE
-	float **golden;
-	golden = (float **)multialloc(sizeof(float), 2, Nz,Nxy);
-	// note this needs to be updated
-	read_golden(cmdline->ReconImageDataFile,golden,Nz,Nxy,Image);
-	float updatedVoxelsList[300];
-
-	float sumOfSE=0;
-	for(i=0;i<Nz;i++)
-	for(j=0;j<Nxy;j++)
-		sumOfSE+=(Image->image[i][j]-golden[i][j])*(Image->image[i][j]-golden[i][j]);
-
-	float MSE=sumOfSE/Nxy/Nz;
-	float RMSE=sqrt(MSE);
-
-	fprintf(stdout,"Rho: %f initial_RMSE: %f \n",convergence_rho,RMSE);
-	#endif
 
 	/* Order of pixel updates need NOT be raster order, just initialize */
 	order = (int *)_mm_malloc(sum*SV_per_Z*sizeof(int),64);
 
 	t=0;
 
+	/* To generate random order of SV-updates */
 	for(p=0;p<Nz;p+=SV_depth)
 	for(i=0;i<Ny;i+=(SVLength*2-overlappingDistance))
 	for(j=0;j<Nx;j+=(SVLength*2-overlappingDistance))
@@ -119,6 +170,7 @@ void MBIRReconstruct3D(
 
 	int phaseMap[sum*SV_per_Z];
 
+	/* Tiled pattern of SV-updates : SVs of a particular tile color can be updated simultaneosuly */
 	#pragma omp parallel for private(jj) schedule(dynamic)
 	for(i=0;i<SV_per_Z;i++)
 	for(jj=0;jj<sum;jj++)
@@ -141,6 +193,10 @@ void MBIRReconstruct3D(
 
 	int group_id_list[SV_per_Z][4];
 
+	/* Sequence in which the 4 tile colors are specified for SV-updates */
+	/* Reconstruction can be split into super-slices, each of consisting of "sv-depth" consecutive slices */
+	/* For each super-slice, ONLY SVs of same tile-color can be updated at a time */
+	/* However, at a time the chosen tile-color across super-slices can vary */
 	for(i=0;i<SV_per_Z;i++){
 		if(i%4==0){
 			group_id_list[i][0]=0;
@@ -168,6 +224,7 @@ void MBIRReconstruct3D(
 		}				
 	}
 	srand(time(NULL));
+	/* Heap used for non-homogenous SV updates */
 	struct heap_node headNodeArray[sum*SV_per_Z];
 
 	for(i=0;i<SV_per_Z;i++)
@@ -176,7 +233,12 @@ void MBIRReconstruct3D(
 		headNodeArray[i*sum+jj].pt=i*sum+jj;
 		headNodeArray[i*sum+jj].x=0.0;
 	}
-	int indexList_size=(int) sum*SV_per_Z*4*c_ratio*(1-convergence_rho);	
+	int indexList_size=(int) sum*SV_per_Z*4*c_ratio*(1-convergence_rho);	/* ~20% of #voxels for the parameters defined above */
+	if(MBIRMode==MBIR_PnP_PRIORS)
+	{
+		indexList_size/=2;													/* ~10% of #voxels for the parameters define above */
+		repnum_factor=2;
+	}
 	int indexList[indexList_size];   	             	    
     
 
@@ -192,112 +254,98 @@ void MBIRReconstruct3D(
 	
 	int startIndex=0;
 	int endIndex=0;        		
-
-	//gettimeofday(&tm1,NULL);
          
 	char stop_FLAG=0;
 
-	#pragma omp parallel
-	{
-		while(stop_FLAG==0 && equits<MaxIterations && it<100*MaxIterations)
+	/* BEGIN: main MBIR loop */
+	//printf("Started main reconstruction \n");
+	while(stop_FLAG==0 && equits<MaxIterations && it<MaxIterations)
+	{	
+
+		if(MBIRMode==MBIR_PnP_PRIORS)
 		{
-			#pragma omp single
-			{		
-				if(it==0)
-				{
-					startIndex=0;
-					endIndex=sum*SV_per_Z;
-				}	
-				else
-				{
-					if((it-1)%(2*rep_num)==0 && it!=1)
-						three_way_shuffle(&order[0],&phaseMap[0],&headNodeArray[0],sum*SV_per_Z);
-			
-					if(it%2==1)
-					{
-						initialize_heap(&priorityheap);						
-						for(jj=0;jj<sum*SV_per_Z;jj++){
-							heap_insert(&priorityheap, &(headNodeArray[jj]));
-						}						
-						startIndex=0;					
-						endIndex=indexList_size;					
+			/* porximal-input for CT likelihood-inversion agent F */
+			reconparams.proximalmap = W.image;
+			/* make a copy of W: to be used later for Mann update */
+			for(jz=0;jz<Nz;jz++)
+				memcpy(W_prev.image[jz],W.image[jz],Nxy*sizeof(float));
+		}
 
-						for(i=0;i<endIndex;i++){
-							struct heap_node tempNode;
-							get_heap_max(&priorityheap, &tempNode);
-							indexList[i]=tempNode.pt;
-						}	
-					}				
-					else{					
-						startIndex=((it-2)/2)%rep_num*sum*SV_per_Z/rep_num;
-						endIndex=(((it-2)/2)%rep_num+1)*sum*SV_per_Z/rep_num;
-					}
+		/* ---In case of MBIRMode==MBIR_PnP_PRIORS, the below snippet gives us F(W), where F is CT likelihood-inversion agent and W is proximal input ---*/
+		/* ---In case of MBIRMode==MBIR_MAP_ESTIMATION, the below snippet gives us the iterative update for the MAP estimate --*/
+		MAP_Inversion_ICD_SingleIteration(MBIRMode, e, w, sinogram->sinoparams, Image, reconparams, A_Padded_Map, max_num_pointer, svpar, \
+		 it, &phaseMap[0], group_id_list, order, &indexList[0], &headNodeArray[0], rep_num, repnum_factor, indexList_size, \
+		 voxelsBuffer1, voxelsBuffer2, &NumUpdates, &totalValue, &totalChange);
+		/*------END: (iterative update for CT Likelihood inversion or MAP estimation)---------*/
+
+		if(MBIRMode==MBIR_PnP_PRIORS)
+		{
+
+			RhoPnP  = (it<1)?0.5:reconparams.RhoPnP;
+			positivity_flag = (it<1)?0:reconparams.Positivity;
+			/* Initialize Z (needed only for proximal-denoisers) */
+			if(it==0)
+			{	
+				for(jz=0;jz<Nz;jz++)
+					memcpy(Z.image[jz],X->image[jz],Nxy*sizeof(float));
+			}
+
+			/* V=2X-W, where X=F(W). So below step gives us V=(2F-I)W */
+			Reflect(V.image, X->image, W.image, imgparams);
+			/* Z=H(V)*/
+			if(PriorModel==PRIOR_TYPE_QGGMRF)
+				Proximal_QGGMRF_Denoising(&Z, reconparams.priorparams, ImageReconMask, &V, reconparams.SigmaPnP, 1, positivity_flag);
+			else if(PriorModel==PRIOR_TYPE_BM3D)
+				BM3DDenoise(&Z, &V, reconparams.priorparams);
+
+			/* W=2Z-V, where Z=H(V) and V=(2F-I)W. So this step gives W=(2H-I)(2F-I)W. */
+			Reflect(W.image, Z.image, V.image, imgparams);
+			/* Mann update on W */
+			MannUpdate(W.image, W_prev.image, RhoPnP, imgparams);
+		}
+		
+		if(NumUpdates>0)
+		{
+			avg_update = totalChange/NumUpdates;
+			float avg_value = totalValue/NumUpdates;
+			avg_update_rel = avg_update/avg_value * 100;
+
+			if(MBIRMode==MBIR_PnP_PRIORS)
+			{
+				residue=0;
+				for(jz=0;jz<Nz;jz++)
+				for(jxy=0;jxy<Nxy;jxy++)
+				{
+					if(ImageReconMask[jxy])
+					residue += (X->image[jz][jxy]-Z.image[jz][jxy])*(X->image[jz][jxy]-Z.image[jz][jxy]);
 				}
-			}
-
-			int group=0;
-
-			for (group = 0; group < 4; group++)
-			{
-				#pragma omp for schedule(dynamic)  reduction(+:NumUpdates) reduction(+:totalValue) reduction(+:totalChange)
-				for (jj = startIndex; jj < endIndex; jj+=1)
-					super_voxel_recon(jj,svpar,&NumUpdates,&totalValue,&totalChange,it, &phaseMap[0],order,&indexList[0],w,e,A_Padded_Map,&max_num_pointer[0],&headNodeArray[0],sinogram->sinoparams,reconparams,Image,voxelsBuffer1,voxelsBuffer2,&group_id_list[0][0],group);
-			}
-
-			#pragma omp single
-			{
- 
-			if(NumUpdates>0)
-			{
-				avg_update = totalChange/NumUpdates;
-				float avg_value = totalValue/NumUpdates;
-				avg_update_rel = avg_update/avg_value * 100;
-				//printf("avg_update %f, avg_value %f, avg_update_rel %f\n",avg_update,avg_value,avg_update_rel);
-			}
-			
-			/*
-			float cost = MAPCostFunction3D(e, Image, sinogram, &reconparams);
-			fprintf(stdout, "it %d cost = %-15f, avg_update %f \n", it, cost, avg_update);           	
-			*/
-
-			#if 0
-			//#ifdef find_RMSE
-			float sumOfSE=0;
-			for(i=0;i<Nz;i++)
-			for(j=0;j<Nxy;j++)
-				sumOfSE+=(Image->image[i][j]-golden[i][j])*(Image->image[i][j]-golden[i][j]);
-			float MSE=sumOfSE/Nxy/Nz;
-			float RMSE=sqrt(MSE);
-			if(it<300) {
-				updatedVoxelsList[it]=NumUpdates*1.0/Nxy/Nz;
-				fprintf(stdout,"Rho: %f Equits: %f RMSE: %f \n",convergence_rho,updatedVoxelsList[it],RMSE);
-			}
-			#endif		
-
-			if (avg_update_rel < StopThreshold && (endIndex!=0))
-				stop_FLAG = 1;
-
-			it++;
-			equits += (float)NumUpdates/(NumMaskVoxels*Nz);
-			if(equits > it_print)
-			{
-				fprintf(stdout,"\titeration %d, average change %.4f %%\n",it_print,avg_update_rel);
-				it_print++;
-			}
-
-			NumUpdates=0;
-			totalValue=0;
-			totalChange=0;
-
+				residue = sqrt(residue/(Nz*NumMaskVoxels)); 
 			}
 
 		}
-	}
-	
-        //gettimeofday(&tm2,NULL);
-        //unsigned long long tt = 1000 * (tm2.tv_sec - tm1.tv_sec) + (tm2.tv_usec - tm1.tv_usec) / 1000;
-        //printf("\trun time %llu ms (iterations only)\n", tt);
+		
+		if (avg_update_rel < StopThreshold && (endIndex!=0))
+			stop_FLAG = 1;
 
+		// Increment iteration (each iterayion < 2 equit if MBIR_MAP_ESTIMATION and < 1 equit if MBIR_PnP_Priors)
+		it++;
+		equits += (float)NumUpdates/(NumMaskVoxels*Nz);
+		if(equits > it_print)
+		{
+			if(MBIRMode==MBIR_PnP_PRIORS)
+				fprintf(stdout,"\titeration %d, average change %.4f %%, residue %.4f mm^-1\n",it_print,avg_update_rel,residue);
+			else
+				fprintf(stdout,"\titeration %d, average change %.4f %%\n",it_print,avg_update_rel);
+
+			it_print++;
+		}
+
+		NumUpdates=0;
+		totalValue=0;
+		totalChange=0;
+
+	}/* END: main MBIR loop */
+	
 	if(StopThreshold <= 0)
 		fprintf(stdout,"\tNo stopping condition--running fixed iterations\n");
 	else if(stop_FLAG == 1)
@@ -312,17 +360,118 @@ void MBIRReconstruct3D(
 	_mm_free((void *)order);
 	_mm_free((void *)voxelsBuffer1);
 	_mm_free((void *)voxelsBuffer2);
-	if(priorityheap.size>0)
-		free_heap((void *)&priorityheap); 
-
-	#ifdef find_RMSE
-	multifree(golden,2);
-	#endif
 
 }   /*  END MBIRReconstruct3D()  */
 
 
-				
+/* ---In case of MBIRMode==MBIR_PnP_PRIORS, we perform 1 equit (effective ICD iteration) of Likelihood inversion (via proximal-map computation) ---*/
+/* ---In case of MBIRMode==MBIR_MAP_ESTIMATION, we compute 2 equits of MAP inversion using QGGMRF as prior model ---*/
+void MAP_Inversion_ICD_SingleIteration(
+	int MBIRMode,
+	float **e,
+	float **w,
+	struct SinoParams3DParallel sinoparams,
+	struct Image3D *Image,
+	struct ReconParams reconparams,
+	struct AValues_char **A_Padded_Map,
+	float *max_num_pointer,
+	struct SVParams svpar,
+	int it,
+	int *phaseMap,
+	int group_id_list[][4],
+	int *order,
+	int *indexList,
+	struct heap_node *headNodeArray,
+	int rep_num,
+	int repnum_factor,
+	int indexList_size,
+	float *voxelsBuffer1, // voxelsBuffer1,2 not needed for single-node reconstruction
+	float *voxelsBuffer2,
+	unsigned long *NumUpdates_ext,
+	float *totalValue_ext,
+	float *totalChange_ext
+	)
+{
+	int i,jj,group,startIndex,endIndex,subit;
+	unsigned long NumUpdates=0;
+	float totalValue=0, totalChange=0;
+	int SV_per_Z = svpar.SV_per_Z;
+	int sum = svpar.Nsv;
+
+	struct heap priorityheap;
+	initialize_heap(&priorityheap);
+
+	/* In case of 1st iteration, do only Homogenous SV updates */
+	if(it==0)
+	{
+		startIndex=0;
+		endIndex=sum*SV_per_Z;
+
+		/* Which SVs in the above list can be updated simulatenously ? */
+		/* We cover all SVs by iterating through 4 cycles */
+		/* A given SV with (super)slice-index jz is updated if its tile-color (called "phase-map" here) matches that specified by group_id_list(jz,cycle)  */
+		for (group = 0; group < 4; group++)
+		{
+			#pragma omp parallel for schedule(dynamic)  reduction(+:NumUpdates) reduction(+:totalValue) reduction(+:totalChange)
+			for (jj = startIndex; jj < endIndex; jj+=1)
+				super_voxel_recon(jj,svpar,&NumUpdates,&totalValue,&totalChange, it, &phaseMap[0],order,&indexList[0],w,e,A_Padded_Map,&max_num_pointer[0],&headNodeArray[0],sinoparams,reconparams,Image,voxelsBuffer1,voxelsBuffer2,&group_id_list[0][0],group);
+		}
+	}	
+	else
+	{
+		subit=1;
+
+		/* Each iteration divided into 10 cycles (sub-iterations) */
+		while(subit<=10)
+		{
+			/* after every 10th cycle (sub-iteration), perform below shuffle */
+			if((subit-1)==0 && it!=1)
+				three_way_shuffle(&order[0],&phaseMap[0],&headNodeArray[0],sum*SV_per_Z);
+
+			/* Alternating cycles of homogenous and Non-homogenous updates (10 alternating cycles, in each cycle 20% of SVs updated  */
+			if(subit%2==1)
+			{
+				/* Non-homogenous updates */
+				initialize_heap(&priorityheap);						
+				for(jj=0;jj<sum*SV_per_Z;jj++){
+					heap_insert(&priorityheap, &(headNodeArray[jj]));
+				}						
+				startIndex=0;					
+				endIndex=indexList_size;					
+
+				for(i=0;i<endIndex;i++){
+					struct heap_node tempNode;
+					get_heap_max(&priorityheap, &tempNode);
+					indexList[i]=tempNode.pt;
+				}	
+			}				
+			else{	
+				/* Homogenous updates (random order) */				
+				startIndex=((subit-2)/2)%(rep_num*repnum_factor)*sum*SV_per_Z/(rep_num*repnum_factor);
+				endIndex=(((subit-2)/2)%(rep_num*repnum_factor)+1)*sum*SV_per_Z/(rep_num*repnum_factor);
+			}
+
+			/* Which SVs in the above list can be updated simulatenously ? */
+			/* We cover all SVs by iterating through 4 cycles */
+			/* A given SV with (super)slice-index jz is updated if its tile-color (called "phase-map" here) matches that specified by group_id_list(jz,cycle)  */
+			for (group = 0; group < 4; group++)
+			{
+				#pragma omp parallel for schedule(dynamic)  reduction(+:NumUpdates) reduction(+:totalValue) reduction(+:totalChange)
+				for (jj = startIndex; jj < endIndex; jj+=1)
+					super_voxel_recon(jj,svpar,&NumUpdates,&totalValue,&totalChange,subit, &phaseMap[0],order,&indexList[0],w,e,A_Padded_Map,&max_num_pointer[0],&headNodeArray[0],sinoparams,reconparams,Image,voxelsBuffer1,voxelsBuffer2,&group_id_list[0][0],group);
+			}
+
+			subit++;
+		}
+	}
+	*NumUpdates_ext = NumUpdates;
+	*totalChange_ext = totalChange;
+	*totalValue_ext = totalValue;
+
+	if(priorityheap.size>0)
+		free_heap((void *)&priorityheap); 
+}
+			
 
 void forwardProject2D(
 	float *e,
@@ -449,15 +598,16 @@ void super_voxel_recon(
 	struct maxStruct * bandMaxMap = svpar.bandMaxMap;
 	int pieceLength = svpar.pieceLength;
 	int NViewsdivided = sinoparams.NViews/pieceLength;
+	int MBIRMode = (strcmp(reconparams.MBIRMode, "conventional")==0) ? MBIR_MAP_ESTIMATION : ( (strcmp(reconparams.MBIRMode, "PnP")==0) ? MBIR_PnP_PRIORS:-1);
 
 	if(it%2==0)
-	{
-		startSlice = order[jj] / Nx / Ny;
+	{	/* Homogenous update */
+		startSlice = order[jj] / Nx / Ny; /* order[jj] - coordinate of first voxel within SV  */
 		jy = (order[jj] - startSlice* Nx * Ny) / Nx;  
 		jx = (order[jj] - startSlice* Nx * Ny) % Nx;
 	}
 	else
-	{
+	{	/* Non-homogenous update */
 		startSlice = order[indexList[jj]] / Nx / Ny;
 		jy=(order[indexList[jj]] - startSlice* Nx * Ny) /Nx;
 		jx=(order[indexList[jj]] - startSlice* Nx * Ny) %Nx;	
@@ -480,12 +630,9 @@ void super_voxel_recon(
 			return;
 	}
 
-	int countNumber=0;	/*XW: the number of voxels chosen for a certain radius of circle*/
-	int radius =SVLength;	/*XW: choose the circle radius*/
-	int coordinateSize=1;	/*XW: CoordinateSize is the size of a minimum square enclosing the circle. For the baseline code, coordinateSize=1 because only 1 voxel*/
-	/*XW: imagine that this is a minimum square enclosing the circle. The square 
-	 * "touches" the circle on 4 coordinate points. CoordianteSize is the possible 
-	 * maximum number of voxels for a certain radius of circle */
+	int countNumber=0;		/* no. of of voxels to update within SV  */
+	int radius =SVLength;	/* half-length of square SV */
+	int coordinateSize=1;	
 	if(radius!=0)
 		coordinateSize=(2*radius+1)*(2*radius+1);
 	int k_newCoordinate[coordinateSize];
@@ -494,7 +641,7 @@ void super_voxel_recon(
 	int k_newAA=0;
 	int voxelIncrement=0;
 
-	/*XW: choosing the voxels locations in a circle*/
+	/* choosing the voxels within SV to be updated */
 	for(j_newAA=jy;j_newAA<=(jy+2*radius);j_newAA++)
 	for(k_newAA=jx;k_newAA<=(jx+2*radius);k_newAA++)
 	{
@@ -509,7 +656,7 @@ void super_voxel_recon(
 		voxelIncrement++;
 	}
 
-	/*XW: if no voxel chosen, we skip this loop iteration*/
+	/*Skip upating SV if no valid voxels are found */
 	if(countNumber==0)
 		return;
 
@@ -534,6 +681,8 @@ void super_voxel_recon(
 	for(p=0;p< sinoparams.NViews;p++)
 		bandWidthTemp[p]=bandMax[p]-bandMin[p];
 
+	/* Sinogram buffer is split into multiple blocks, each having "piceLength" no. of views */
+	/* Calculate the block-wise height of the sinogram buffer */
 	for (p = 0; p < NViewsdivided; p++)
 	{
 		int bandWidthMax=bandWidthTemp[p*pieceLength];
@@ -546,6 +695,7 @@ void super_voxel_recon(
 
 	int tempCount=0;
 
+	/* Total size of sinogram buffer across all blocks */
 	#pragma vector aligned
 	#pragma simd reduction(+:tempCount) 
 	for (p = 0; p < NViewsdivided; p++)
@@ -555,6 +705,7 @@ void super_voxel_recon(
 	float ** newEArray = (float **)malloc(sizeof(float *) * NViewsdivided);
 	float ** CopyNewEArray = (float **)malloc(sizeof(float *) * NViewsdivided); 
 
+	/* Block-wise memory allocation for sinogram buffer (inlcudes weights w, residual-sinogram e and updated version of e) */
 	for (p = 0; p < NViewsdivided; p++)
 	{
 		newWArray[p] = (float *)malloc(sizeof(float)*bandWidth[p]*pieceLength*SV_depth_modified);
@@ -567,7 +718,8 @@ void super_voxel_recon(
 
 	const int n_theta=sinoparams.NViews;
 
-	/*XW: copy the interlaced we into the memory buffer*/ 
+	/* From the main sinogram copy data relevant to this specific SV-update into buffer  */
+	/* For view indexed by (p,t) where p=block-index and t=view-index within block, relevant channels are specified by bandMin(p,t)+bandWidth(p) */
 	for (p = 0; p < NViewsdivided; p++)
 	{
 		newWArrayPointer=&newWArray[p][0];
@@ -587,6 +739,7 @@ void super_voxel_recon(
 		}
 	}
 
+	/* Initialize buffer for updated e (residual sinogram) */
 	for (p = 0; p < NViewsdivided; p++)
 	{
 		#ifdef USE_INTEL_MEMCPY
@@ -596,6 +749,7 @@ void super_voxel_recon(
 		#endif
 	}
 
+	/* Transpose the sinogram buffer so data relevant to a particular voxel update is fully contguous */
 	float ** newWArrayTransposed = (float **)malloc(sizeof(float *) * NViewsdivided);
 	float ** newEArrayTransposed = (float **)malloc(sizeof(float *) * NViewsdivided);
 
@@ -608,6 +762,7 @@ void super_voxel_recon(
 	float *WTransposeArrayPointer=&newWArrayTransposed[0][0];
 	float *ETransposeArrayPointer=&newEArrayTransposed[0][0];
 	
+	/* Form the tranposed buffer, where data in each block is now ordered by (slice_index, channel_index, view_index) */
 	for (p = 0; p < NViewsdivided; p++)
 	for(currentSlice=0;currentSlice<(SV_depth_modified);currentSlice++) 
 	{
@@ -636,16 +791,17 @@ void super_voxel_recon(
 
 	free((void **)newWArray);
 
-	/*XW: the start of the loop to compute theta1, theta2*/
+	/* BEGIN: Loop over each voxel in SV and compute voxel-wise ICD updates */
+	/* Each voxel-wise ICD update is based on minimizing a local quadratic surrogate function whose coefficients are denoted by (theta_2, theta_1) */
 	for(i=0;i<countNumber;i++)
 	{
-		const short j_new=j_newCoordinate[i];   /*XW: get the voxel's x,y location*/
+		const short j_new=j_newCoordinate[i];      /*XW: get the voxel's x,y location*/
 		const short k_new=k_newCoordinate[i];
-		float tempV[SV_depth_modified];
+		float tempV[SV_depth_modified];			  
 		float tempProxMap[SV_depth_modified];
 		float neighbors[SV_depth_modified][10];
 		char zero_skip_FLAG[SV_depth_modified];
-		float max=max_num_pointer[j_new*Nx+k_new];
+		float max=max_num_pointer[j_new*Nx+k_new]; /* the voxel-wise maximum value of A-matrix column */
 		float THETA1[SV_depth_modified];
 		float THETA2[SV_depth_modified];
 		memset(&THETA1[0],0.0, sizeof(THETA1));
@@ -655,15 +811,17 @@ void super_voxel_recon(
 		int theVoxelPosition=(j_new-jy)*(2*SVLength+1)+(k_new-jx); 
 		unsigned char * A_padd_Tranpose_pointer = &A_Padded_Map[theSVPosition][theVoxelPosition].val[0];
 
+		/* for a given (jy,jx) coordinate, consecutively update all voxels along the slice-direction (jz) since we can re-use same A-matrix entries */
 		for(currentSlice=0;currentSlice<SV_depth_modified;currentSlice++)
 		{
 			tempV[currentSlice] = (float)(image[startSlice+currentSlice][j_new*Nx+k_new]); /*XW: current voxel's value*/
 
 			zero_skip_FLAG[currentSlice] = 0;
 
-			if(reconparams.ReconType == MBIR_MODULAR_RECONTYPE_QGGMRF_3D)
+			/*if(reconparams.ReconType == MBIR_MODULAR_RECONTYPE_QGGMRF_3D)*/
+			if(MBIRMode == MBIR_MAP_ESTIMATION)
 			{
-				ExtractNeighbors3D(&neighbors[currentSlice][0],k_new,j_new,&image[startSlice+currentSlice][0],imgparams);
+				ExtractNeighbors_WithinSlice(&neighbors[currentSlice][0],k_new,j_new,&image[startSlice+currentSlice][0],imgparams);
 
 				if((startSlice+currentSlice)==0)
 					neighbors[currentSlice][8]=voxelsBuffer1[j_new*Nx+k_new];
@@ -688,29 +846,36 @@ void super_voxel_recon(
 					}
 				}
 			}
-			if(reconparams.ReconType == MBIR_MODULAR_RECONTYPE_PandP)
+			//if(reconparams.ReconType == MBIR_MODULAR_RECONTYPE_PandP)
+			if(MBIRMode == MBIR_PnP_PRIORS)
 				tempProxMap[currentSlice] = proximalmap[startSlice+currentSlice][j_new*Nx+k_new];
 		}
 
 		A_padd_Tranpose_pointer = &A_Padded_Map[theSVPosition][theVoxelPosition].val[0];
+		/* loop over each block in the sinogram-buffer */
 		for(p=0;p<NViewsdivided;p++)
 		{
+			/* For voxel-update get starting channel-index in the buffer and no. of channels */
 			const int myCount=A_Padded_Map[theSVPosition][theVoxelPosition].pieceWiseWidth[p];
 			const int pieceMin=A_Padded_Map[theSVPosition][theVoxelPosition].pieceWiseMin[p];
+			/* update voxels along slice-direction */
 			#pragma vector aligned
 			for(currentSlice=0;currentSlice<SV_depth_modified;currentSlice++)
 			if(zero_skip_FLAG[currentSlice] == 0 )
 			{
+				/* Point to sinogram-buffer at block-index p and slice-index  "currentSlice" */
 				WTransposeArrayPointer=&newWArrayTransposed[p][currentSlice*bandWidth[p]*pieceLength];
 				ETransposeArrayPointer=&newEArrayTransposed[p][currentSlice*bandWidth[p]*pieceLength];
+				/* Move pointer to starting (minimum) channel for this voxel update */
 				WTransposeArrayPointer+=pieceMin*pieceLength;
 				ETransposeArrayPointer+=pieceMin*pieceLength;
 				float tempTHETA1=0.0;
 				float tempTHETA2=0.0;
+				/* Accumulate and sum operation to compute theta_1 and theta_2 based on likelihood model for voxel update */     
 				#pragma vector aligned
 				#pragma simd reduction(+:tempTHETA2,tempTHETA1)
 				for(t=0;t<myCount*pieceLength;t++)
-				{	/* summing over voxels which are not skipped or masked*/     
+				{	
 					tempTHETA1 += A_padd_Tranpose_pointer[t]*WTransposeArrayPointer[t]*ETransposeArrayPointer[t];
 					tempTHETA2 += A_padd_Tranpose_pointer[t]*WTransposeArrayPointer[t]*A_padd_Tranpose_pointer[t];
 				}
@@ -719,6 +884,7 @@ void super_voxel_recon(
 			}
 			A_padd_Tranpose_pointer+=myCount*pieceLength;
 		}
+		/* Scaling to account for 8-bit quantization of A-matrix */
 		for(currentSlice=0;currentSlice<SV_depth_modified;currentSlice++)
 		{
 			THETA1[currentSlice]=-THETA1[currentSlice]*max*inverseNumber;
@@ -729,17 +895,19 @@ void super_voxel_recon(
 
 		A_padd_Tranpose_pointer = &A_Padded_Map[theSVPosition][theVoxelPosition].val[0];
 	
+		/* Increment theta_1 and theta_2 for voxel update based on prior model */
 		for(currentSlice=0;currentSlice<SV_depth_modified;currentSlice++)
 		if(zero_skip_FLAG[currentSlice] == 0)
 		{
 			float pixel,step;
-			if(reconparams.ReconType == MBIR_MODULAR_RECONTYPE_QGGMRF_3D)
+			//if(reconparams.ReconType == MBIR_MODULAR_RECONTYPE_QGGMRF_3D)
+			if(MBIRMode == MBIR_MAP_ESTIMATION)
 			{
-				step = QGGMRF3D_Update(reconparams,tempV[currentSlice],&neighbors[currentSlice][0],THETA1[currentSlice],THETA2[currentSlice]);
+				QGGMRF3D_Update(reconparams.priorparams,tempV[currentSlice],&neighbors[currentSlice][0],&THETA1[currentSlice],&THETA2[currentSlice]);
 			}
-			else if(reconparams.ReconType == MBIR_MODULAR_RECONTYPE_PandP)
+			else if(MBIRMode == MBIR_PnP_PRIORS)
 			{
-				step = PandP_Update(reconparams,tempV[currentSlice],tempProxMap[currentSlice],THETA1[currentSlice],THETA2[currentSlice]);
+				PandP_Update(reconparams.SigmaPnPsq,tempV[currentSlice],tempProxMap[currentSlice],&THETA1[currentSlice],&THETA2[currentSlice]);
 			}
 			else
 			{
@@ -747,6 +915,7 @@ void super_voxel_recon(
 				exit(-1);
 			}
 
+			step  = -THETA1[currentSlice]/THETA2[currentSlice];
 			pixel = tempV[currentSlice] + step;  /* can apply over-relaxation to the step size here */
 
 			if(PositivityFlag)
@@ -763,6 +932,7 @@ void super_voxel_recon(
 			diff[currentSlice]=diff[currentSlice]*max*inverseNumber;
 		}
 
+		/* Update local copy of residual-sinogram (e) buffer on each core */
 		for(p=0;p<NViewsdivided;p++)
 		{
 			const int myCount=A_Padded_Map[theSVPosition][theVoxelPosition].pieceWiseWidth[p];
@@ -780,18 +950,20 @@ void super_voxel_recon(
 			}
 			A_padd_Tranpose_pointer+=myCount*pieceLength;
 		}
-	}
+	}/* END: loop over each voxel in SV*/
 
 	for (p = 0; p < NViewsdivided; p++)
 		free((void *)newWArrayTransposed[p]);
 
 	free((void **)newWArrayTransposed);
 
+	/* Insert update-value for SV into heap */
 	if((it%2)==0)
 		headNodeArray[jj].x=totalChange_loc;
 	else
 		headNodeArray[indexList[jj]].x=totalChange_loc;
 
+	/* Revert the transpose operation on the local e (updated residual-sinogram) buffer, so that data order is (slice_index, view_index, channel_index). */
 	for (p = 0; p < NViewsdivided; p++)
 	for(currentSlice=0;currentSlice<SV_depth_modified;currentSlice++)
 	{
@@ -814,7 +986,8 @@ void super_voxel_recon(
 	float* CopyNewEArrayPointer=&CopyNewEArray[0][0];
 	float* eArrayPointer=&e[0][0];
 
-	for (p = 0; p < NViewsdivided; p++)      /*XW: update the error term in the memory buffer*/
+	/* Update global e data based on local e (residual-sinogram) buffer */
+	for (p = 0; p < NViewsdivided; p++)     
 	{
 		newEArrayPointer=&newEArray[p][0];
 		CopyNewEArrayPointer=&CopyNewEArray[p][0];
@@ -894,30 +1067,40 @@ void three_way_shuffle(int *order1, int *order2,struct heap_node *headNodeArray,
 
 float MAPCostFunction3D(float **e,struct Image3D *Image,struct Sino3DParallel *sinogram,struct ReconParams *reconparams)
 {
-	int i, M, j, jx, jy, jz, Nx, Ny, Nz, plusx, minusx, plusy, plusz ;
-    	float **x ;
-    	float **w ;
-	float nloglike, nlogprior_nearest, nlogprior_diag, nlogprior_interslice ;
-    
-    	x = Image->image;
-    	w = sinogram->weight;
+	int i, M, j, Nx, Ny, Nz;
+    float **x ;
+    float **w ;
+    float nloglike;
+
+    x = Image->image;
+    w = sinogram->weight;
     
 	M = sinogram->sinoparams.NViews * sinogram->sinoparams.NChannels ;
 	Nx = Image->imgparams.Nx;
 	Ny = Image->imgparams.Ny;
-    	Nz = Image->imgparams.Nz;
+    Nz = Image->imgparams.Nz;
     
 	nloglike = 0.0;
 	for (i = 0; i <sinogram->sinoparams.NSlices; i++){
-		for (j = 0; j < M; j++)
-    			nloglike += e[i][j]*w[i][j]*e[i][j];
-    	}
+	for (j = 0; j < M; j++)
+    	nloglike += e[i][j]*w[i][j]*e[i][j];
+    }
 
 	nloglike /= 2.0;
-	nlogprior_nearest = 0.0;
-	nlogprior_diag = 0.0;
-    	nlogprior_interslice = 0.0;
-    
+	
+	return (nloglike + QGGMRFCostFunction3D(x, reconparams->priorparams, Image->imgparams)) ;
+}
+
+/* Separated this out since QGGMRF can be used in plug-n-play mode */
+float QGGMRFCostFunction3D(float **x, struct PriorParams priorparams, struct ImageParams3D imgparams)
+{
+	int j,Nx,Ny,Nz,jx,jy,jz,plusx,minusx,plusy,plusz;
+	float nlogprior_nearest = 0.0, nlogprior_diag = 0.0, nlogprior_interslice = 0.0;
+
+	Nx=imgparams.Nx;
+	Ny=imgparams.Ny;
+	Nz=imgparams.Nz;
+
 	for (jz = 0; jz < Nz; jz++)
 	for (jy = 0; jy < Ny; jy++)
 	for (jx = 0; jx < Nx; jx++)
@@ -933,19 +1116,42 @@ float MAPCostFunction3D(float **e,struct Image3D *Image,struct Sino3DParallel *s
 
 		j = jy*Nx + jx; 
 
-		nlogprior_nearest += QGGMRF_Potential((x[jz][j] - x[jz][jy*Nx+plusx]), reconparams);
-		nlogprior_nearest += QGGMRF_Potential((x[jz][j] - x[jz][plusy*Nx+jx]),reconparams);
+		nlogprior_nearest += QGGMRF_Potential((x[jz][j] - x[jz][jy*Nx+plusx]), priorparams);
+		nlogprior_nearest += QGGMRF_Potential((x[jz][j] - x[jz][plusy*Nx+jx]), priorparams);
 
-		nlogprior_diag += QGGMRF_Potential((x[jz][j] - x[jz][plusy*Nx+minusx]),reconparams);
-		nlogprior_diag += QGGMRF_Potential((x[jz][j] - x[jz][plusy*Nx+plusx]),reconparams);
+		nlogprior_diag += QGGMRF_Potential((x[jz][j] - x[jz][plusy*Nx+minusx]),priorparams);
+		nlogprior_diag += QGGMRF_Potential((x[jz][j] - x[jz][plusy*Nx+plusx]), priorparams);
 
-		nlogprior_interslice += QGGMRF_Potential((x[jz][j] - x[plusz][jy*Nx+jx]),reconparams);
+		nlogprior_interslice += QGGMRF_Potential((x[jz][j] - x[plusz][jy*Nx+jx]),priorparams);
 	}
 
-	return (nloglike + reconparams->b_nearest * nlogprior_nearest + reconparams->b_diag * nlogprior_diag + reconparams->b_interslice * nlogprior_interslice) ;
+	return(priorparams.b_nearest * nlogprior_nearest + priorparams.b_diag * nlogprior_diag + priorparams.b_interslice * nlogprior_interslice);
 }
 
 
+void MannUpdate( float **img_current, float **img_previous, float Rho, struct ImageParams3D *imgparams)
+{
+	int jz, jyx, Nz, Nyx;
+	Nz  = imgparams->Nz;
+	Nyx = imgparams->Nx * imgparams->Ny;
+
+	for(jz=0;jz<Nz;jz++)
+	for(jyx=0;jyx<Nyx;jyx++)
+		img_current[jz][jyx] = Rho*img_current[jz][jyx] + (1-Rho)*img_previous[jz][jyx];
+
+}
+
+
+void Reflect(float **img_reflected, float **img_in, float **img_ref, struct ImageParams3D *imgparams)
+{
+	int jz, jyx, Nz, Nyx;
+	Nz  = imgparams->Nz;
+	Nyx = imgparams->Nx * imgparams->Ny;
+
+	for(jz=0;jz<Nz;jz++)
+	for(jyx=0;jyx<Nyx;jyx++)
+		img_reflected[jz][jyx] = 2.0*img_in[jz][jyx] - img_ref[jz][jyx] ;
+}
 
 
 #if 0
@@ -956,9 +1162,9 @@ void read_golden(char *fname,float **golden,int Nz,int N, struct Image3D *Image)
 	int i;
         char slicefname[200];
         char *sliceindex;
-	sliceindex= (char *)malloc(MBIR_MODULAR_MAX_NUMBER_OF_SLICE_DIGITS);
-	for(i=0;i<Nz;i++){
-		sprintf(sliceindex,"%.*d",MBIR_MODULAR_MAX_NUMBER_OF_SLICE_DIGITS,Image->imgparams.FirstSliceNumber+i);
+		sliceindex= (char *)malloc(MBIR_MODULAR_MAX_NUMBER_OF_SLICE_DIGITS);
+		for(i=0;i<Nz;i++){
+			sprintf(sliceindex,"%.*d",MBIR_MODULAR_MAX_NUMBER_OF_SLICE_DIGITS,Image->imgparams.FirstSliceNumber+i);
 
 		/* Obtain file name for the given slice */
 		strcpy(slicefname,fname);
