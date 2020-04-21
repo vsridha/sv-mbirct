@@ -12,10 +12,10 @@
 /* Normalize weights to sum to 1, assuming 10-pt 3D neighborhood */
 void NormalizePriorWeights3D(struct ReconParams *reconparams)
 {
-    double sum = 4.0*reconparams->b_nearest + 4.0*reconparams->b_diag + 2.0*reconparams->b_interslice;
-    reconparams->b_nearest /= sum;
-    reconparams->b_diag /= sum;
-    reconparams->b_interslice /= sum;
+    double sum = 4.0*reconparams->priorparams.b_nearest + 4.0*reconparams->priorparams.b_diag + 2.0*reconparams->priorparams.b_interslice;
+    reconparams->priorparams.b_nearest /= sum;
+    reconparams->priorparams.b_diag /= sum;
+    reconparams->priorparams.b_interslice /= sum;
 }
 
 void initSVParams(struct SVParams *svpar,struct ImageParams3D imgparams,struct SinoParams3DParallel sinoparams)
@@ -31,6 +31,7 @@ void initSVParams(struct SVParams *svpar,struct ImageParams3D imgparams,struct S
 	for(j=0;j<imgparams.Nx;j+=(svpar->SVLength*2-svpar->overlap))
 		svpar->Nsv++;
 
+        /* For each SV, lower (min) and upper (max) band that bounds the SV sinogram-trace */
         svpar->bandMinMap = (struct minStruct *)get_spc(svpar->Nsv,sizeof(struct minStruct));
         svpar->bandMaxMap = (struct maxStruct *)get_spc(svpar->Nsv,sizeof(struct maxStruct));
 	for(j=0;j<svpar->Nsv;j++) {

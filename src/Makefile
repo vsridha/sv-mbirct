@@ -27,7 +27,7 @@ all: mbir_ct clean
 clean:
 	rm *.o 
 
-OBJ = initialize.o recon3d.o heap.o icd3d.o A_comp.o allocate.o MBIRModularUtils.o
+OBJ = initialize.o recon3d.o heap.o icd3d.o pnp_denoiser.o A_comp.o allocate.o MBIRModularUtils.o
 
 mbir_ct: mbir_ct.o $(OBJ)
 	$(CC) $(CFLAGS) $^ -o $@ -lm
