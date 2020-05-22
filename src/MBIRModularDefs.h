@@ -13,11 +13,6 @@
 #define MBIR_MODULAR_IMAGETYPE_3D 1
 #define MBIR_MODULAR_IMAGETYPE_4D 2	/* for future implementation */
 
-/*
-#define MBIR_MODULAR_RECONTYPE_QGGMRF_2D 0
-#define MBIR_MODULAR_RECONTYPE_QGGMRF_3D 1
-#define MBIR_MODULAR_RECONTYPE_PandP 2
-*/
 
 #define MBIR_MAP_ESTIMATION 1
 #define MBIR_PnP_PRIORS 2
@@ -104,13 +99,19 @@ struct PriorParams
   double pow_sigmaX_q;    /* pow(sigmaX,q) */
   double pow_T_qmp;       /* pow(T,q-p) */
 
-  /*--Specific to BM3D/BM4D and Res-net CNN--*/
-  double QuantLevel_lower; /* Denoiser input must be normalized to (0,1). Lower and upper range in image that map to 0 and 1 values */ 
+  /*--Specific to BM3D and CNN (Deep Res-net) --*/
+  double QuantLevel_lower; /* Denoiser input must be normalized to (0,1). Lower and upper pixel bounds in image that map to 0 and 1 values */ 
   double QuantLevel_upper; 
   double Sigma_n;          /* on a scale of 0-->255 */
 
   /* others */
   char   DataDir[200];     /* Directory where denoiser-routine (Python script that is external to C executable) accesses input / output */ 
+
+  /*--Specific to CNN --*/
+  char TF_gpu_flag;             /* Run TensorFlow (TF) with GPU acceleration (default) */  
+  char TF_CheckPointDir[256];   /* Directory where all checkpoint files (containing CNN model parameters) are stored */
+  char TF_CheckpointState[256]; /* values are 'latest' or 'specific'. default='latest', loads most recent checkpoint */
+  int  TF_CheckpointEpochNum;   /* Not needed if CheckpointState is 'latest'. Indicates epoch number for loading specific checkpoint. */ 
 
 
 };
@@ -123,21 +124,20 @@ struct ReconParams
   double StopThreshold;   /* Stopping threshold in percent */
   int MaxIterations;      /* Maximum number of iterations */
   int Positivity;         /* Positivity constraint: 1=yes, 0=no */
+  
   /* sinogram weighting */
   double SigmaY;          /* Scaling constant for sinogram weights (e.g. W=exp(-y)/SigmaY^2 ) */
   int weightType;         /* How to compute weights if internal, 0: =1 (default); 1: exp(-y); 2: exp(-y/2) */
 
   char MBIRMode[50];     /* conventional or PnP */
-  char PriorModel[50];   /* prior model: QGGMRF, BM3D or Res-CNN. */
+  char PriorModel[50];   /* prior model: QGGMRF, BM3D or CNN. */
 
   struct PriorParams priorparams;    /* paramters for prior model */ 
-
+  
+  /* Relevent parameters if MBIRMode is "PnP" */
   double SigmaPnP;
   double RhoPnP;
-
-  /* initialized and maintained when reconstruction is initiated */
-  float **proximalmap;    /* ptr to 3D proximal map image; here to carry it to the ICD update */
-
+  float **proximalmap; /* ptr to 3D proximal map image; here to carry it to the ICD update. initialized and maintained when reconstruction is initiated */
   /* derived */
   double SigmaPnPsq;
 };

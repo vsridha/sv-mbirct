@@ -61,7 +61,6 @@ int ReadSinoParams3DParallel(
 	while(fgets(tag, 200, fp)!=NULL && Nlines<100)
 		Nlines++;
 	rewind(fp);
-	//printf("Nlines=%d\n",Nlines);
 
 	/* parse each line assuming a single ":" delimiter */
 	for(i=0; i<Nlines; i++)
@@ -69,14 +68,12 @@ int ReadSinoParams3DParallel(
 		strcpy(fieldname," ");
 		strcpy(fieldval_s," ");
 		fgets(tag, 200, fp);
-		ptr=strtok(tag,":\n\r");	// including the newline will keep it out of the last token
+		ptr=strtok(tag,":\n\r");		// including the newline will keep it out of the last token
 		if(ptr!=NULL) {
-			//strcpy(fieldname,ptr);
 			sscanf(ptr,"%s",fieldname);	// this won't include leading/trailing spaces, strcpy will
 			ptr=strtok(NULL,":\n\r");
 		}
 		if(ptr!=NULL) sscanf(ptr,"%s",fieldval_s);
-		//printf("|%s|%s|\n",fieldname,fieldval_s);
 
 		if(strcmp(fieldname,"Geometry")==0)
 		{
@@ -116,15 +113,12 @@ int ReadSinoParams3DParallel(
 		}
 		else if(strcmp(fieldname,"ViewAngleList")==0)
 			sscanf(fieldval_s,"%s",AngleListFname);  // this won't include leading/trailing spaces, strcpy will
-			//strcpy(AngleListFname,fieldval_s);
 		else
 			fprintf(stderr,"Warning: unrecognized field \"%s\" in %s, line %d\n",fieldname,fname,i+1);
 
 	}  // done parsing
 
 	fclose(fp);
-
-	//printSinoParams3DParallel(sinoparams);
 
 	/* do some error checking */
 	if(Geometry_flag==0) {
@@ -157,7 +151,6 @@ int ReadSinoParams3DParallel(
 	strcpy(tag,fname);
 	ptr=dirname(tag);
 	sprintf(AngleListFname,"%s/%s",ptr,fieldval_s);
-	//printf("Views filename \"%s\"\n",AngleListFname);
 
 	/* Read the view angles file */
 	if((fp=fopen(AngleListFname,"r")) == NULL) {
@@ -318,10 +311,10 @@ void printReconParams(struct ReconParams *reconparams)
     fprintf(stdout, " - MBIR Mode (Bayesian or Plug-n-play)                   = %s\n", reconparams->MBIRMode);
     fprintf(stdout, " - Prior Model                                           = %s\n", reconparams->PriorModel);
 
-    //if(strcmp(reconparams->MBIRMode, "PnP") ==0){
+    if(strcmp(reconparams->MBIRMode, "PnP") ==0){
     fprintf(stdout, " - SigmaPnP                                              = %.7f\n", reconparams->SigmaPnP);
     fprintf(stdout, " - RhoPnP                                                = %.7f\n", reconparams->RhoPnP);
-	//}
+	}
 }
 
 /* Print parameters specific to QGGMRF prior */
@@ -339,9 +332,9 @@ void printReconParamsQGGMRF3D(struct ReconParams *reconparams)
 	    fprintf(stdout, " - Prior weight for diagonal neighbors within slice      = %.7f\n", reconparams->priorparams.b_diag);
 	    fprintf(stdout, " - Prior weight for nearest neighbors in adjacent slices = %.7f\n", reconparams->priorparams.b_interslice);
 	}
-	else if(strcmp(reconparams->PriorModel,"BM3D")==0)
+	else if((strcmp(reconparams->PriorModel,"BM3D")==0) || (strcmp(reconparams->PriorModel,"CNN")==0) )
 	{
-		fprintf(stdout, "BM3D/CNN PRIOR PARAMETERS:\n");
+		fprintf(stdout, "%s PRIOR PARAMETERS:\n", reconparams->PriorModel);
 	    fprintf(stdout, " - Quantization lower bound                              = %.7f (mm^-1)\n", reconparams->priorparams.QuantLevel_lower);
 	    fprintf(stdout, " - Quantization upper bound                              = %.7f (mm^-1)\n", reconparams->priorparams.QuantLevel_upper);
 	    fprintf(stdout, " - Sigma_n (on a scale of 0 to 255)                      = %.7f\n", reconparams->priorparams.Sigma_n);
@@ -369,6 +362,7 @@ int ReadReconParams(
 	int  Prior_index;
 	char Prior_flag=0;
 	char PriorModelList[NUM_MODELS][50]={"QGGMRF","BM3D","CNN"};
+	char fieldval_SigmaPnP[200], fieldval_RhoPnP[200];
 
 	/* set defaults, also used for error checking below */
 	reconparams->InitImageValue=MUWATER;
@@ -393,7 +387,6 @@ int ReadReconParams(
 	while(fgets(tag, 200, fp)!=NULL && Nlines<100)
 		Nlines++;
 	rewind(fp);
-	//printf("Nlines=%d\n",Nlines);
 
 	/* parse each line assuming a single ":" delimiter */
 	for(i=0; i<Nlines; i++)
@@ -401,16 +394,25 @@ int ReadReconParams(
 		strcpy(fieldname," ");
 		strcpy(fieldval_s," ");
 		fgets(tag, 200, fp);
-		ptr=strtok(tag,":\n\r");	// including the newline will keep it out of the last token
+		ptr=strtok(tag,":\n\r");	    // including the newline will keep it out of the last token
 		if(ptr!=NULL) {
-			//strcpy(fieldname,ptr);
 			sscanf(ptr,"%s",fieldname);	// this won't include leading/trailing spaces, strcpy will
 			ptr=strtok(NULL,":\n\r");
 		}
 		if(ptr!=NULL) sscanf(ptr,"%s",fieldval_s);
-		//printf("|%s|%s|\n",fieldname,fieldval_s);
 
-		if(strcmp(fieldname,"PriorModel")==0)
+		
+		if (strcmp(fieldname,"MBIRMode")==0)
+		{
+			if(strcmp(fieldval_s, "conventional")==0 || strcmp(fieldval_s, "PnP")==0)
+				strcpy(reconparams->MBIRMode, fieldval_s);
+			else
+			{
+				fprintf(stderr,"Error in %s: MBIRMode value \"%s\" unrecognized\n",fname,fieldval_s);
+				exit(-1);
+			}
+		}
+		else if(strcmp(fieldname,"PriorModel")==0)
 		{
 			for(j=0; j<NUM_MODELS; j++)
 			{
@@ -429,20 +431,8 @@ int ReadReconParams(
 				exit(-1);
 			}
 		}
-		else if (strcmp(fieldname,"MBIRMode")==0)
-		{
-			if(strcmp(fieldval_s, "conventional")==0 || strcmp(fieldval_s, "PnP")==0)
-				strcpy(reconparams->MBIRMode, fieldval_s);
-			else
-			{
-				fprintf(stderr,"Error in %s: MBIRMode value \"%s\" unrecognized\n",fname,fieldval_s);
-				exit(-1);
-			}
-		}
 		else if(strcmp(fieldname,"InitImageValue")==0)
 		{
-			//sscanf(fieldval_s,"%lf",&(reconparams->InitImageValue));
-			//Changed above to the following to retain default value if input doesn't make sense
 			sscanf(fieldval_s,"%lf",&(fieldval_f));
 			if(fieldval_f <= 0)
 				fprintf(stderr,"Warning in %s: InitImageValue should be positive. Reverting to default.\n",fname);
@@ -456,22 +446,6 @@ int ReadReconParams(
 				fprintf(stderr,"Warning in %s: SigmaY parameter should be positive. Reverting to default.\n",fname);
 			else
 				reconparams->SigmaY = fieldval_f;
-		}
-		else if(strcmp(fieldname,"SigmaPnP")==0)
-		{
-			sscanf(fieldval_s,"%lf",&(fieldval_f));
-			if(fieldval_f <= 0)
-				fprintf(stderr,"Warning in %s: SigmaPnP parameter should be positive. Reverting to default.\n",fname);
-			else
-				reconparams->SigmaPnP = fieldval_f;
-		}
-		else if(strcmp(fieldname,"RhoPnP")==0)
-		{
-			sscanf(fieldval_s,"%lf",&(fieldval_f));
-			if((fieldval_f <= 0) || (fieldval_f >= 1) )
-				fprintf(stderr,"Warning in %s: RhoPnP parameter should be a positive number in (0,1). Reverting to default.\n",fname);
-			else
-				reconparams->RhoPnP = fieldval_f;
 		}
 		else if(strcmp(fieldname,"weightType")==0)
 		{
@@ -505,12 +479,36 @@ int ReadReconParams(
 			else
 				reconparams->Positivity = fieldval_d;
 		}
+		else if(strcmp(fieldname,"SigmaPnP")==0)
+		{
+			strcpy(fieldval_SigmaPnP, fieldval_s); /* Parse later */
+		}
+		else if(strcmp(fieldname,"RhoPnP")==0)
+		{
+			strcpy(fieldval_RhoPnP, fieldval_s);   /* Parse later */
+		}
 		else if(fieldname[0]!='#') /* This line is not a comment as well */
 			fprintf(stderr,"Warning: unrecognized field \"%s\" in %s, line %d\n",fieldname,fname,i+1);
 
 	}  // done parsing
 
 	fclose(fp);
+
+	/* Parse remaining arguments conditioned on MBIRMode */
+	if(strcmp(reconparams->MBIRMode, "PnP")==0)
+	{
+		sscanf(fieldval_SigmaPnP,"%lf",&(fieldval_f));
+		if(fieldval_f <= 0)
+			fprintf(stderr,"Warning in %s: SigmaPnP parameter should be positive. Reverting to default.\n",fname);
+		else
+			reconparams->SigmaPnP = fieldval_f;
+
+		sscanf(fieldval_RhoPnP,"%lf",&(fieldval_f));
+		if((fieldval_f <= 0) || (fieldval_f >= 1) )
+			fprintf(stderr,"Warning in %s: RhoPnP parameter should be a positive number in (0,1). Reverting to default.\n",fname);
+		else
+			reconparams->RhoPnP = fieldval_f;
+	}
 
 	/* do some error checking */
 	if(Prior_flag==0) {
@@ -546,7 +544,7 @@ int ReadPriorParams(
 	char tag[200], fieldname[200], fieldval_s[200], *ptr;
 	double fieldval_f;
 	int fieldval_d;
-	int i, Nlines;
+	int i, Nlines, PriorType;
 	char Prior_flag=0;
 
 	/* set defaults, also used for error checking below */
@@ -570,7 +568,19 @@ int ReadPriorParams(
 	while(fgets(tag, 200, fp)!=NULL && Nlines<100)
 		Nlines++;
 	rewind(fp);
-	//printf("Nlines=%d\n",Nlines);
+
+	if(strcmp(reconparams->PriorModel,"QGGMRF")==0)
+		PriorType = PRIOR_TYPE_QGGMRF;
+	else if(strcmp(reconparams->PriorModel,"BM3D")==0)
+		PriorType = PRIOR_TYPE_BM3D;
+	else if(strcmp(reconparams->PriorModel,"CNN")==0)
+		PriorType = PRIOR_TYPE_CNN;
+	else
+	{
+		fprintf(stderr,"Error: Prior Model %s not recognized \n",reconparams->PriorModel);
+		exit(-1);
+	}
+		
 
 	/* parse each line assuming a single ":" delimiter */
 	for(i=0; i<Nlines; i++)
@@ -578,112 +588,122 @@ int ReadPriorParams(
 		strcpy(fieldname," ");
 		strcpy(fieldval_s," ");
 		fgets(tag, 200, fp);
-		ptr=strtok(tag,":\n\r");	// including the newline will keep it out of the last token
+		ptr=strtok(tag,":\n\r");		// including the newline will keep it out of the last token
 		if(ptr!=NULL) {
-			//strcpy(fieldname,ptr);
 			sscanf(ptr,"%s",fieldname);	// this won't include leading/trailing spaces, strcpy will
 			ptr=strtok(NULL,":\n\r");
 		}
 		if(ptr!=NULL) sscanf(ptr,"%s",fieldval_s);
-		//printf("|%s|%s|\n",fieldname,fieldval_s);
 
-		if(strcmp(fieldname,"p")==0)
+		if(PriorType==PRIOR_TYPE_QGGMRF)
 		{
-			sscanf(fieldval_s,"%lf",&(fieldval_f));
-			if(fieldval_f < 1 || fieldval_f > 2)
-				fprintf(stderr,"Warning in %s: p parameter should be in range [1,2]. Reverting to default.\n",fname);
-			else
-				reconparams->priorparams.p = fieldval_f;
+			if(strcmp(fieldname,"p")==0)
+			{
+				sscanf(fieldval_s,"%lf",&(fieldval_f));
+				if(fieldval_f < 1 || fieldval_f > 2)
+					fprintf(stderr,"Warning in %s: p parameter should be in range [1,2]. Reverting to default.\n",fname);
+				else
+					reconparams->priorparams.p = fieldval_f;
+			}
+			else if(strcmp(fieldname,"q")==0)
+			{
+				sscanf(fieldval_s,"%lf",&(fieldval_f));
+				if(fieldval_f < 1 || fieldval_f > 2)
+					fprintf(stderr,"Warning in %s: q parameter should be in range [1,2]. Reverting to default.\n",fname);
+				else
+					reconparams->priorparams.q = fieldval_f;
+			}
+			else if(strcmp(fieldname,"T")==0)
+			{
+				sscanf(fieldval_s,"%lf",&(fieldval_f));
+				if(fieldval_f <= 0)
+					fprintf(stderr,"Warning in %s: T parameter should be positive. Reverting to default.\n",fname);
+				else
+					reconparams->priorparams.T = fieldval_f;
+			}
+			else if(strcmp(fieldname,"SigmaX")==0)
+			{
+				sscanf(fieldval_s,"%lf",&(fieldval_f));
+				if(fieldval_f <= 0)
+					fprintf(stderr,"Warning in %s: SigmaX parameter should be positive. Reverting to default.\n",fname);
+				else
+					reconparams->priorparams.SigmaX = fieldval_f;
+			}
+			else if(strcmp(fieldname,"b_nearest")==0)
+			{
+				sscanf(fieldval_s,"%lf",&(fieldval_f));
+				if(fieldval_f <= 0)
+					fprintf(stderr,"Warning in %s: b_nearest parameter should be positive. Reverting to default.\n",fname);
+				else
+					reconparams->priorparams.b_nearest = fieldval_f;
+			}
+			else if(strcmp(fieldname,"b_diag")==0)
+			{
+				sscanf(fieldval_s,"%lf",&(fieldval_f));
+				if(fieldval_f < 0)
+					fprintf(stderr,"Warning in %s: b_diag parameter should be non-negative. Reverting to default.\n",fname);
+				else
+					reconparams->priorparams.b_diag = fieldval_f;
+			}
+			else if(strcmp(fieldname,"b_interslice")==0)
+			{
+				sscanf(fieldval_s,"%lf",&(fieldval_f));
+				if(fieldval_f < 0)
+					fprintf(stderr,"Warning in %s: b_interslice parameter should be non-negative. Reverting to default.\n",fname);
+				else
+					reconparams->priorparams.b_interslice = fieldval_f;
+			}
+			// else if(fieldname[0]!='#') /* This line is not a comment as well */
+			// fprintf(stderr,"Warning: unrecognized field \"%s\" in %s, line %d\n",fieldname,fname,i+1);
 		}
-		else if(strcmp(fieldname,"q")==0)
+		else if((PriorType==PRIOR_TYPE_BM3D) || (PriorType==PRIOR_TYPE_CNN))
 		{
-			sscanf(fieldval_s,"%lf",&(fieldval_f));
-			if(fieldval_f < 1 || fieldval_f > 2)
-				fprintf(stderr,"Warning in %s: q parameter should be in range [1,2]. Reverting to default.\n",fname);
-			else
-				reconparams->priorparams.q = fieldval_f;
+			if(strcmp(fieldname,"quant_lower")==0)
+			{
+				sscanf(fieldval_s,"%lf",&(fieldval_f));
+				reconparams->priorparams.QuantLevel_lower = fieldval_f;
+			}
+			else if(strcmp(fieldname,"quant_upper")==0)
+			{
+				sscanf(fieldval_s,"%lf",&(fieldval_f));
+				reconparams->priorparams.QuantLevel_upper = fieldval_f;
+			}
+			else if(strcmp(fieldname,"Sigma_n")==0)
+			{
+				sscanf(fieldval_s,"%lf",&(fieldval_f));
+				if((fieldval_f<0) || (fieldval_f>255))
+					fprintf(stderr,"Warning in %s: Sigma_n parameter must be in range (0,255) \n",fname);
+				else
+					reconparams->priorparams.Sigma_n = fieldval_f;
+			}
+			//else if(fieldname[0]!='#') /* This line is not a comment as well */
+			//	fprintf(stderr,"Warning: unrecognized field \"%s\" in %s, line %d\n",fieldname,fname,i+1);
 		}
-		else if(strcmp(fieldname,"T")==0)
-		{
-			sscanf(fieldval_s,"%lf",&(fieldval_f));
-			if(fieldval_f <= 0)
-				fprintf(stderr,"Warning in %s: T parameter should be positive. Reverting to default.\n",fname);
-			else
-				reconparams->priorparams.T = fieldval_f;
-		}
-		else if(strcmp(fieldname,"SigmaX")==0)
-		{
-			sscanf(fieldval_s,"%lf",&(fieldval_f));
-			if(fieldval_f <= 0)
-				fprintf(stderr,"Warning in %s: SigmaX parameter should be positive. Reverting to default.\n",fname);
-			else
-				reconparams->priorparams.SigmaX = fieldval_f;
-		}
-		else if(strcmp(fieldname,"b_nearest")==0)
-		{
-			sscanf(fieldval_s,"%lf",&(fieldval_f));
-			if(fieldval_f <= 0)
-				fprintf(stderr,"Warning in %s: b_nearest parameter should be positive. Reverting to default.\n",fname);
-			else
-				reconparams->priorparams.b_nearest = fieldval_f;
-		}
-		else if(strcmp(fieldname,"b_diag")==0)
-		{
-			sscanf(fieldval_s,"%lf",&(fieldval_f));
-			if(fieldval_f < 0)
-				fprintf(stderr,"Warning in %s: b_diag parameter should be non-negative. Reverting to default.\n",fname);
-			else
-				reconparams->priorparams.b_diag = fieldval_f;
-		}
-		else if(strcmp(fieldname,"b_interslice")==0)
-		{
-			sscanf(fieldval_s,"%lf",&(fieldval_f));
-			if(fieldval_f < 0)
-				fprintf(stderr,"Warning in %s: b_interslice parameter should be non-negative. Reverting to default.\n",fname);
-			else
-				reconparams->priorparams.b_interslice = fieldval_f;
-		}
-		else if(strcmp(fieldname,"quant_lower")==0)
-		{
-			sscanf(fieldval_s,"%lf",&(fieldval_f));
-			reconparams->priorparams.QuantLevel_lower = fieldval_f;
-		}
-		else if(strcmp(fieldname,"quant_upper")==0)
-		{
-			sscanf(fieldval_s,"%lf",&(fieldval_f));
-			reconparams->priorparams.QuantLevel_upper = fieldval_f;
-		}
-		else if(strcmp(fieldname,"Sigma_n")==0)
-		{
-			sscanf(fieldval_s,"%lf",&(fieldval_f));
-			if((fieldval_f<0) || (fieldval_f>255))
-				fprintf(stderr,"Warning in %s: Sigma_n parameter must be in range (0,255) \n",fname);
-			else
-				reconparams->priorparams.Sigma_n = fieldval_f;
-		}
-		else if(fieldname[0]!='#') /* This line is not a comment as well */
-			fprintf(stderr,"Warning: unrecognized field \"%s\" in %s, line %d\n",fieldname,fname,i+1);
 
 	}  // done parsing
 
 	fclose(fp);
 
-	if(reconparams->priorparams.p > reconparams->priorparams.q) {
-		printReconParamsQGGMRF3D(reconparams);
-		fprintf(stderr,"Error in %s: Need (p <= q) for convexity. (p<q for strict convexity)\n",fname);
-		exit(-1);
+	if(PriorType==PRIOR_TYPE_QGGMRF)
+	{
+		if(reconparams->priorparams.p > reconparams->priorparams.q) {
+			printReconParamsQGGMRF3D(reconparams);
+			fprintf(stderr,"Error in %s: Need (p <= q) for convexity. (p<q for strict convexity)\n",fname);
+			exit(-1);
+		}
+		/* calculate derived parameters */
+		reconparams->priorparams.pow_sigmaX_p = pow(reconparams->priorparams.SigmaX,reconparams->priorparams.p);
+		reconparams->priorparams.pow_sigmaX_q = pow(reconparams->priorparams.SigmaX,reconparams->priorparams.q);
+		reconparams->priorparams.pow_T_qmp    = pow(reconparams->priorparams.T,reconparams->priorparams.q - reconparams->priorparams.p);
+		reconparams->priorparams.SigmaXsq     = reconparams->priorparams.SigmaX * reconparams->priorparams.SigmaX;
 	}
-
-	if(reconparams->priorparams.QuantLevel_lower > reconparams->priorparams.QuantLevel_upper) {
-		fprintf(stderr,"Error in %s: Need quant_lower to be less than quant_upper \n",fname);
-		exit(-1);
+	else if((PriorType==PRIOR_TYPE_BM3D) || (PriorType==PRIOR_TYPE_CNN))
+	{
+		if(reconparams->priorparams.QuantLevel_lower > reconparams->priorparams.QuantLevel_upper) {
+			fprintf(stderr,"Error in %s: Need quant_lower to be less than quant_upper \n",fname);
+			exit(-1);
+		}
 	}
-
-	/* calculate derived parameters */
-	reconparams->priorparams.pow_sigmaX_p = pow(reconparams->priorparams.SigmaX,reconparams->priorparams.p);
-	reconparams->priorparams.pow_sigmaX_q = pow(reconparams->priorparams.SigmaX,reconparams->priorparams.q);
-	reconparams->priorparams.pow_T_qmp    = pow(reconparams->priorparams.T,reconparams->priorparams.q - reconparams->priorparams.p);
-	reconparams->priorparams.SigmaXsq     = reconparams->priorparams.SigmaX * reconparams->priorparams.SigmaX;
 
 	return(0);
 }
