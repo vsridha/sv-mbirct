@@ -40,6 +40,17 @@ recName="$dataDir/$dataName/recon/$dataName"
 matDir="$dataDir/sysmatrix"
 matName="$matDir/$dataName"
 
+
+#---If using CNN as a prior model provide the following info--
+# Path for TensorFlow (TF) checkpoint files
+TF_ckpt_dir="/scratch/gilbreth/vsridha/DnCNN-tensorflow/natural_images/checkpoint" 
+# TensorFlow args
+# Required: -c to indicate TF checkpoint directory  
+# Optional: -g to disable GPU acceleration, -d to use specific TF checkpoint file instead of most recent
+# If -d is included, then -l needed to indicate epoch number for specifying TF checkpoint file 
+TF_args="-c ${TF_ckpt_dir}"
+
+
 # create folders that hold pre-computed items and output if they don't exist
 # -d usage: check if directory exists
 if [[ ! -d "$matDir" ]]; then
@@ -106,7 +117,7 @@ touch $matName.lastused
 ### RECONSTRUCTION STAGE
 
 $execdir/mbir_ct -i $parName -j $parName -k $parName -s $sinoName -w $wgtName \
-   -r $recName -m $matName -e $matName 
+   -r $recName -m $matName -e $matName ${TF_args}
 #   2>&1 | tee $(dirname $recName)/out
 
 exit 0
