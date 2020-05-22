@@ -47,7 +47,6 @@
 #include <sys/time.h>
 
 
-
 #define VERBOSE_FLAG_PRIOR_DENOISER 0
 
 /* Internal functions */
@@ -332,5 +331,72 @@ void BM3DDenoise(struct Image3D *CleanImage, struct Image3D *NoisyImage, struct 
     sprintf(SysCommand, "rm -r %s*.2Dimgdata", DataDir);
     system(SysCommand);
 }
+
+
+/* Non-optimization Denoiser : BM3D */
+void CNNDenoise(struct Image3D *CleanImage, struct Image3D *NoisyImage, struct PriorParams priorparams) /* Input - noisy image. Output - clean (denoised) image */
+{
+    char SysCommand[500];
+    char SrcDir[250];
+    char DataDir[250];
+
+    /* for command line */
+    char fname_in[250];
+    char fname_out[250];
+    char CkptDir[250];
+    char test_params[250];
+    char dir_info[250];
+    char dataset_info[250];
+
+    float lower = (float)priorparams.QuantLevel_lower;
+    float upper = (float)priorparams.QuantLevel_upper;
+    int Sigma_n = (int)priorparams.Sigma_n;
+    int use_gpu = (int)priorparams.TF_gpu_flag;
+
+    struct ImageParams3D *imgparams = &(NoisyImage->imgparams);
+
+    /* for now set these file paths (wrt run-script) locally instead of getting them from parameters */
+    strcpy(SrcDir, "../src");
+    sprintf(CkptDir, "%s/sigma_%d", priorparams.TF_CheckPointDir, Sigma_n);
+    strcpy(DataDir, strcat(priorparams.DataDir,"_temp"));
+
+    if(VERBOSE_FLAG_PRIOR_DENOISER)
+        printf("\nCNN Denoising \n");
+
+    /* You can later get rid of having separate temp_data_in and temp_data_out files, and just have 1 set of temp_data files */
+    /* Write noisy image */
+    sprintf(fname_in,  "%s_in", DataDir);
+    sprintf(fname_out, "%s_out", DataDir);
+    if(WriteImage3D(fname_in, NoisyImage))
+    {
+         fprintf(stderr, "Error in writing out denoiser input image file through function BM3DDenoise \n");
+         exit(-1);
+    }
+
+    /* Execute CNN denoising through a Python script (located in src directory) */
+
+    /* Arguments */
+    sprintf(dir_info, " --checkpoint_dir %s ", CkptDir);
+    sprintf(dataset_info, " --img_format bin --img_filename_base_in %s --img_filename_base_out %s --Nz %d --Ny %d --Nx %d --SliceNumDigits %d --FirstSliceNumber %d ", \
+            fname_in, fname_out, imgparams->Nz, imgparams->Ny, imgparams->Nx, imgparams->NumSliceDigits, imgparams->FirstSliceNumber);
+    sprintf(test_params, " --is_add_noise 0 --ckpt_state latest --use_bounds 1 --lower_bound %f --upper_bound %f ", lower, upper);
+
+    sprintf(SysCommand, "python3 %s/main_cnn.py  --use_gpu %d --phase test --sigma %d %s %s %s", SrcDir, use_gpu, Sigma_n, test_params, dir_info, dataset_info);
+    system(SysCommand);
+
+    /* Read in clean image */
+    sprintf(fname_out, "%s_out", DataDir);
+
+    if(ReadImage3D(fname_out, CleanImage))
+    {
+         fprintf(stderr, "Error in reading in clean image file through function CNNDenoise \n");
+         exit(-1);
+    }
+
+    /* Remove existing temp data (shift this to the end) */
+    sprintf(SysCommand, "rm -r %s*.2Dimgdata", DataDir);
+    system(SysCommand);
+}
+
 
 

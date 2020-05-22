@@ -44,5 +44,6 @@ void RandomizedICD_QGGMRF(struct Image3D *Image, struct Image3D *ProximalMapInpu
 
 void BM3DDenoise(struct Image3D *CleanImage, struct Image3D *NoisyImage, struct PriorParams priorparams); /* Input - noisy image. Output - clean (denoised) image */
 
+void CNNDenoise(struct Image3D *CleanImage, struct Image3D *NoisyImage, struct PriorParams priorparams);  /* Input - noisy image. Output - clean (denoised) image */
 
 #endif
