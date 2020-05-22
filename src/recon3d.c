@@ -23,21 +23,26 @@
 #define convergence_rho 0.7
 
 /* Internal functions */
-void super_voxel_recon(int jj,struct SVParams svpar,unsigned long *NumUpdates,float *totalValue,float *totalChange,int it,int *phaseMap,
+
+/* ICD Update for a single Super-voxel */
+void super_voxel_recon(int jj,struct SVParams svpar,unsigned long *NumUpdates,float *totalValue,float *totalChange,int NH_flag,int *phaseMap,
 	int *order,int *indexList,float **w,float **e,
 	struct AValues_char ** A_Padded_Map,float *max_num_pointer,struct heap_node *headNodeArray,
 	struct SinoParams3DParallel sinoparams,struct ReconParams reconparams,struct Image3D *Image,
 	float *voxelsBuffer1,float *voxelsBuffer2,int* group_array,int group_id);
+
+/* ICD update exactly once for all Super-voxels (1 effective ICD iteration or 1 equit) */
+void MAP_or_Likelihood_Inversion_ICD_SingleEquit(float **e, float **w, struct SinoParams3DParallel sinoparams, struct Image3D *Image, \
+	struct ReconParams reconparams, struct AValues_char **A_Padded_Map, float *max_num_pointer, struct SVParams svpar, int mix_of_NH_and_H_updates_flag, \
+	int *phaseMap, int group_id_list[][4], int *order, int *indexList, struct heap_node *headNodeArray, int rep_num, int repnum_factor, \
+	int indexList_size, float *voxelsBuffer1, float *voxelsBuffer2, unsigned long *NumUpdates_ext, float *totalValue_ext, float *totalChange_ext);
+
 void coordinateShuffle(int *order1, int *order2,int len);
 void three_way_shuffle(int *order1, int *order2,struct heap_node *headNodeArray,int len);
 float MAPCostFunction3D(float **e,struct Image3D *Image,struct Sino3DParallel *sinogram,struct ReconParams *reconparams);
 void MannUpdate(float **img_current, float **img_previous, float Rho, struct ImageParams3D *imgparams);
 void Reflect(float **img_reflected, float **img_in, float **img_ref, struct ImageParams3D *imgparams);
 
-void MAP_Inversion_ICD_SingleIteration(int MBIRMode, float **e, float **w, struct SinoParams3DParallel sinoparams, struct Image3D *Image, \
-	struct ReconParams reconparams, struct AValues_char **A_Padded_Map, float *max_num_pointer, struct SVParams svpar, int it, int *phaseMap, \
-	int group_id_list[][4], int *order, int *indexList, struct heap_node *headNodeArray, 	int rep_num, int repnum_factor, int indexList_size, \
-	float *voxelsBuffer1, float *voxelsBuffer2, unsigned long *NumUpdates_ext, float *totalValue_ext, float *totalChange_ext);
 
 void MBIRReconstruct3D(
 	struct Image3D *Image,
@@ -86,13 +91,23 @@ void MBIRReconstruct3D(
 	struct maxStruct * bandMaxMap = svpar.bandMaxMap; /* for each SV, sinogram-trace that upper-bounds that of entire SV */
 	
 	/* Added */
-	int MBIRMode = (strcmp(reconparams.MBIRMode, "conventional")==0) ? MBIR_MAP_ESTIMATION : ( (strcmp(reconparams.MBIRMode, "PnP")==0) ? MBIR_PnP_PRIORS:-1);
+	int MBIRMode;
 	int PriorModel;
-	int jz,jxy,subit=0,repnum_factor=1,group=0,positivity_flag;
+	int jz,jxy,subit=0,rep_num_factor=1,group=0,positivity_flag;
 	float RhoPnP,residue;
 	struct Image3D W, W_prev, V, Z;
 	struct Image3D *X; 
 	struct ImageParams3D *imgparams=&(Image->imgparams);
+
+	if(strcmp(reconparams.MBIRMode, "conventional")==0) 
+		MBIRMode = MBIR_MAP_ESTIMATION; 
+	else if(strcmp(reconparams.MBIRMode, "PnP")==0) 
+		MBIRMode = MBIR_PnP_PRIORS;
+	else
+	{
+		fprintf(stderr, "Error: Unrecognized MBIR mode %s \n", reconparams.MBIRMode);
+		exit(-1);
+	}
 
 	if(MBIRMode==MBIR_PnP_PRIORS)
 	{
@@ -141,6 +156,8 @@ void MBIRReconstruct3D(
 			PriorModel = PRIOR_TYPE_QGGMRF;
 		else if(strcmp(reconparams.PriorModel, "BM3D")==0)
 			PriorModel = PRIOR_TYPE_BM3D;
+		else if(strcmp(reconparams.PriorModel, "CNN")==0)
+			PriorModel = PRIOR_TYPE_CNN;
 		else
 		{
 			fprintf(stderr, "Error: PriorModel %s not recognized \n", reconparams.PriorModel);
@@ -148,11 +165,11 @@ void MBIRReconstruct3D(
 		}
 	}
 
-	int rep_num=(int)ceil(1/(4*c_ratio*convergence_rho));  /* this is 5 for the parameters defined above */		
+	int rep_num=(int)ceil(1/(4*c_ratio*convergence_rho));  /* VS: this is 10 for the parameters defined above */		
 
-        for(j=0;j<Nxy;j++)
-        if(ImageReconMask[j])
-                NumMaskVoxels++;
+    for(j=0;j<Nxy;j++)
+    if(ImageReconMask[j])
+            NumMaskVoxels++;
 
 	/* Order of pixel updates need NOT be raster order, just initialize */
 	order = (int *)_mm_malloc(sum*SV_per_Z*sizeof(int),64);
@@ -234,11 +251,10 @@ void MBIRReconstruct3D(
 		headNodeArray[i*sum+jj].x=0.0;
 	}
 	int indexList_size=(int) sum*SV_per_Z*4*c_ratio*(1-convergence_rho);	/* ~20% of #voxels for the parameters defined above */
-	if(MBIRMode==MBIR_PnP_PRIORS)
-	{
-		indexList_size/=2;													/* ~10% of #voxels for the parameters define above */
-		repnum_factor=2;
-	}
+
+	indexList_size/=2;														/* ~10% of #voxels for the parameters define above */
+	rep_num_factor=2;
+	
 	int indexList[indexList_size];   	             	    
     
 
@@ -271,12 +287,12 @@ void MBIRReconstruct3D(
 				memcpy(W_prev.image[jz],W.image[jz],Nxy*sizeof(float));
 		}
 
-		/* ---In case of MBIRMode==MBIR_PnP_PRIORS, the below snippet gives us F(W), where F is CT likelihood-inversion agent and W is proximal input ---*/
-		/* ---In case of MBIRMode==MBIR_MAP_ESTIMATION, the below snippet gives us the iterative update for the MAP estimate --*/
-		MAP_Inversion_ICD_SingleIteration(MBIRMode, e, w, sinogram->sinoparams, Image, reconparams, A_Padded_Map, max_num_pointer, svpar, \
-		 it, &phaseMap[0], group_id_list, order, &indexList[0], &headNodeArray[0], rep_num, repnum_factor, indexList_size, \
+		/* ---In case of reconparams.MBIRMode==MBIR_PnP_PRIORS, the below snippet gives us F(W), where F is CT likelihood-inversion agent and W is proximal input ---*/
+		/* ---In case of reconparams.MBIRMode==MBIR_MAP_ESTIMATION, the below snippet gives us the iterative update for the MAP estimate --*/	
+		MAP_or_Likelihood_Inversion_ICD_SingleEquit(e, w, sinogram->sinoparams, Image, reconparams, A_Padded_Map, max_num_pointer, svpar, \
+		 (int)(it>0), &phaseMap[0], group_id_list, order, &indexList[0], &headNodeArray[0], rep_num, rep_num_factor, indexList_size, \
 		 voxelsBuffer1, voxelsBuffer2, &NumUpdates, &totalValue, &totalChange);
-		/*------END: (iterative update for CT Likelihood inversion or MAP estimation)---------*/
+
 
 		if(MBIRMode==MBIR_PnP_PRIORS)
 		{
@@ -297,6 +313,8 @@ void MBIRReconstruct3D(
 				Proximal_QGGMRF_Denoising(&Z, reconparams.priorparams, ImageReconMask, &V, reconparams.SigmaPnP, 1, positivity_flag);
 			else if(PriorModel==PRIOR_TYPE_BM3D)
 				BM3DDenoise(&Z, &V, reconparams.priorparams);
+			else if(PriorModel==PRIOR_TYPE_CNN)
+				CNNDenoise(&Z, &V, reconparams.priorparams);
 
 			/* W=2Z-V, where Z=H(V) and V=(2F-I)W. So this step gives W=(2H-I)(2F-I)W. */
 			Reflect(W.image, Z.image, V.image, imgparams);
@@ -333,7 +351,7 @@ void MBIRReconstruct3D(
 		if(equits > it_print)
 		{
 			if(MBIRMode==MBIR_PnP_PRIORS)
-				fprintf(stdout,"\titeration %d, average change %.4f %%, residue %.4f mm^-1\n",it_print,avg_update_rel,residue);
+				fprintf(stdout,"\titeration %d, average change %.4f %%, PnP residue %.4f mm^-1\n",it_print,avg_update_rel,residue);
 			else
 				fprintf(stdout,"\titeration %d, average change %.4f %%\n",it_print,avg_update_rel);
 
@@ -364,10 +382,9 @@ void MBIRReconstruct3D(
 }   /*  END MBIRReconstruct3D()  */
 
 
-/* ---In case of MBIRMode==MBIR_PnP_PRIORS, we perform 1 equit (effective ICD iteration) of Likelihood inversion (via proximal-map computation) ---*/
-/* ---In case of MBIRMode==MBIR_MAP_ESTIMATION, we compute 2 equits of MAP inversion using QGGMRF as prior model ---*/
-void MAP_Inversion_ICD_SingleIteration(
-	int MBIRMode,
+/* ---In case reconparams.MBIRMode==MBIR_PnP_PRIORS, 	 we perform 1 equit (effective ICD iteration) of Likelihood inversion (via proximal-map computation) ---*/
+/* ---In case reconparams.MBIRMode==MBIR_MAP_ESTIMATION, we perform 1 equit of MAP inversion using QGGMRF as prior model ---*/
+void MAP_or_Likelihood_Inversion_ICD_SingleEquit(
 	float **e,
 	float **w,
 	struct SinoParams3DParallel sinoparams,
@@ -376,14 +393,14 @@ void MAP_Inversion_ICD_SingleIteration(
 	struct AValues_char **A_Padded_Map,
 	float *max_num_pointer,
 	struct SVParams svpar,
-	int it,
+	int mix_of_NH_and_H_updates_flag,
 	int *phaseMap,
 	int group_id_list[][4],
 	int *order,
 	int *indexList,
 	struct heap_node *headNodeArray,
 	int rep_num,
-	int repnum_factor,
+	int rep_num_factor,
 	int indexList_size,
 	float *voxelsBuffer1, // voxelsBuffer1,2 not needed for single-node reconstruction
 	float *voxelsBuffer2,
@@ -397,13 +414,15 @@ void MAP_Inversion_ICD_SingleIteration(
 	float totalValue=0, totalChange=0;
 	int SV_per_Z = svpar.SV_per_Z;
 	int sum = svpar.Nsv;
+	int NH_flag;
 
 	struct heap priorityheap;
 	initialize_heap(&priorityheap);
 
-	/* In case of 1st iteration, do only Homogenous SV updates */
-	if(it==0)
+	/* Do only Homogenous SV updates */
+	if(!mix_of_NH_and_H_updates_flag)
 	{
+		NH_flag=0;
 		startIndex=0;
 		endIndex=sum*SV_per_Z;
 
@@ -414,10 +433,10 @@ void MAP_Inversion_ICD_SingleIteration(
 		{
 			#pragma omp parallel for schedule(dynamic)  reduction(+:NumUpdates) reduction(+:totalValue) reduction(+:totalChange)
 			for (jj = startIndex; jj < endIndex; jj+=1)
-				super_voxel_recon(jj,svpar,&NumUpdates,&totalValue,&totalChange, it, &phaseMap[0],order,&indexList[0],w,e,A_Padded_Map,&max_num_pointer[0],&headNodeArray[0],sinoparams,reconparams,Image,voxelsBuffer1,voxelsBuffer2,&group_id_list[0][0],group);
+				super_voxel_recon(jj,svpar,&NumUpdates,&totalValue,&totalChange,NH_flag,&phaseMap[0],order,&indexList[0],w,e,A_Padded_Map,&max_num_pointer[0],&headNodeArray[0],sinoparams,reconparams,Image,voxelsBuffer1,voxelsBuffer2,&group_id_list[0][0],group);
 		}
 	}	
-	else
+	else /* Do a mix of Homogenous and Non-homogenous SV updates */
 	{
 		subit=1;
 
@@ -425,13 +444,14 @@ void MAP_Inversion_ICD_SingleIteration(
 		while(subit<=10)
 		{
 			/* after every 10th cycle (sub-iteration), perform below shuffle */
-			if((subit-1)==0 && it!=1)
+			if(subit==1)	/* Removed (it!=1) condition */
 				three_way_shuffle(&order[0],&phaseMap[0],&headNodeArray[0],sum*SV_per_Z);
 
 			/* Alternating cycles of homogenous and Non-homogenous updates (10 alternating cycles, in each cycle 20% of SVs updated  */
 			if(subit%2==1)
 			{
 				/* Non-homogenous updates */
+				NH_flag=1;
 				initialize_heap(&priorityheap);						
 				for(jj=0;jj<sum*SV_per_Z;jj++){
 					heap_insert(&priorityheap, &(headNodeArray[jj]));
@@ -446,9 +466,10 @@ void MAP_Inversion_ICD_SingleIteration(
 				}	
 			}				
 			else{	
-				/* Homogenous updates (random order) */				
-				startIndex=((subit-2)/2)%(rep_num*repnum_factor)*sum*SV_per_Z/(rep_num*repnum_factor);
-				endIndex=(((subit-2)/2)%(rep_num*repnum_factor)+1)*sum*SV_per_Z/(rep_num*repnum_factor);
+				/* Homogenous updates (random order) */
+				NH_flag=0;				
+				startIndex=((subit-2)/2)%(rep_num*rep_num_factor)*sum*SV_per_Z/(rep_num*rep_num_factor);
+				endIndex=(((subit-2)/2)%(rep_num*rep_num_factor)+1)*sum*SV_per_Z/(rep_num*rep_num_factor);
 			}
 
 			/* Which SVs in the above list can be updated simulatenously ? */
@@ -458,7 +479,7 @@ void MAP_Inversion_ICD_SingleIteration(
 			{
 				#pragma omp parallel for schedule(dynamic)  reduction(+:NumUpdates) reduction(+:totalValue) reduction(+:totalChange)
 				for (jj = startIndex; jj < endIndex; jj+=1)
-					super_voxel_recon(jj,svpar,&NumUpdates,&totalValue,&totalChange,subit, &phaseMap[0],order,&indexList[0],w,e,A_Padded_Map,&max_num_pointer[0],&headNodeArray[0],sinoparams,reconparams,Image,voxelsBuffer1,voxelsBuffer2,&group_id_list[0][0],group);
+					super_voxel_recon(jj,svpar,&NumUpdates,&totalValue,&totalChange,NH_flag,&phaseMap[0],order,&indexList[0],w,e,A_Padded_Map,&max_num_pointer[0],&headNodeArray[0],sinoparams,reconparams,Image,voxelsBuffer1,voxelsBuffer2,&group_id_list[0][0],group);
 			}
 
 			subit++;
@@ -559,7 +580,7 @@ void super_voxel_recon(
 	unsigned long *NumUpdates,
 	float *totalValue,
 	float *totalChange,
-	int it,
+	int NH_flag,
 	int *phaseMap,
 	int *order,
 	int *indexList,
@@ -598,9 +619,19 @@ void super_voxel_recon(
 	struct maxStruct * bandMaxMap = svpar.bandMaxMap;
 	int pieceLength = svpar.pieceLength;
 	int NViewsdivided = sinoparams.NViews/pieceLength;
-	int MBIRMode = (strcmp(reconparams.MBIRMode, "conventional")==0) ? MBIR_MAP_ESTIMATION : ( (strcmp(reconparams.MBIRMode, "PnP")==0) ? MBIR_PnP_PRIORS:-1);
+	int MBIRMode;
 
-	if(it%2==0)
+	if(strcmp(reconparams.MBIRMode, "conventional")==0) 
+		MBIRMode = MBIR_MAP_ESTIMATION; 
+	else if(strcmp(reconparams.MBIRMode, "PnP")==0) 
+		MBIRMode = MBIR_PnP_PRIORS;
+	else
+	{
+		fprintf(stderr, "Error: Unrecognized MBIR mode %s \n", reconparams.MBIRMode);
+		exit(-1);
+	}
+
+	if(!NH_flag)
 	{	/* Homogenous update */
 		startSlice = order[jj] / Nx / Ny; /* order[jj] - coordinate of first voxel within SV  */
 		jy = (order[jj] - startSlice* Nx * Ny) / Nx;  
@@ -619,7 +650,7 @@ void super_voxel_recon(
 		SV_depth_modified=SV_depth;
 
 	int theSVPosition=jy/(2*SVLength-overlappingDistance)*SVsPerLine+jx/(2*SVLength-overlappingDistance);
-	if(it%2==0)
+	if(!NH_flag)
 	{
 		if(phaseMap[jj]!=group_array[startSlice/SV_depth*4+group_id])
 			return;
@@ -911,7 +942,7 @@ void super_voxel_recon(
 			}
 			else
 			{
-				fprintf(stderr,"Error** Unrecognized ReconType in ICD update\n");
+				fprintf(stderr,"Error** Unrecognized MBIRMode in ICD update\n");
 				exit(-1);
 			}
 
@@ -958,7 +989,7 @@ void super_voxel_recon(
 	free((void **)newWArrayTransposed);
 
 	/* Insert update-value for SV into heap */
-	if((it%2)==0)
+	if(!NH_flag)
 		headNodeArray[jj].x=totalChange_loc;
 	else
 		headNodeArray[indexList[jj]].x=totalChange_loc;
