@@ -1,0 +1,30 @@
+#!/bin/sh -l
+# FILENAME: jobrun_svmbir.sub
+
+#SBATCH -A partner
+#SBATCH -N 1
+#SBATCH -n 16
+#SBATCH -G 1
+#SBATCH -t 00:08:00 
+#SBATCH --job-name output
+
+cd $SLURM_SUBMIT_DIR
+echo $SLURM_SUBMIT_DIR
+export OMP_NUM_THREADS=20
+
+module load intel
+
+module use /depot/itap/amaji/modules
+module load learning/conda-5.1.0-py36-gpu
+module load ml-toolkit-gpu/tensorflow/1.12.0
+
+echo " ==================== Example 0 ======================================="
+echo "  		   sv-MBIR TIMING                                    "
+echo " ======================================================================"
+
+./runDemo.sh
+
+echo
+echo " ================== End example 0 ====================================="
+
+
