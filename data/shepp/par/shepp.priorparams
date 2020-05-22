@@ -6,7 +6,7 @@ SigmaX: 0.635
 b_nearest: 1.0
 b_diag: 0.707
 b_interslice: 1.0
-## BM3D parameters. Lower and upper bounds for image (units mm^-1), noise level (scale of 0 to 255):  
+## BM3D / CNN parameters. Lower and upper bounds for image (units mm^-1), noise level (scale of 0 to 255):  
 quant_lower: 0
 quant_upper: 0.03
-Sigma_n: 4.0
+Sigma_n: 5.0
