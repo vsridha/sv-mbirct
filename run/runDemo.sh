@@ -43,7 +43,7 @@ matName="$matDir/$dataName"
 
 #---If using CNN as a prior model provide the following info--
 # Path for TensorFlow (TF) checkpoint files
-TF_ckpt_dir="/scratch/gilbreth/vsridha/DnCNN-tensorflow/natural_images/checkpoint" 
+TF_ckpt_dir="./data/TF_checkpoint" 
 # TensorFlow args
 # Required: -c to indicate TF checkpoint directory  
 # Optional: -g to disable GPU acceleration, -d to use specific TF checkpoint file instead of most recent
