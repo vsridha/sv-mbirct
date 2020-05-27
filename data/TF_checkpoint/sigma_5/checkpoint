@@ -1,2 +1,0 @@
-model_checkpoint_path: "/scratch/gilbreth/vsridha/DnCNN-tensorflow/natural_images/checkpoint/sigma_5/DnCNN-tensorflow-20"
-all_model_checkpoint_paths: "/scratch/gilbreth/vsridha/DnCNN-tensorflow/natural_images/checkpoint/sigma_5/DnCNN-tensorflow-20"
