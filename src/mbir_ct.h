@@ -52,6 +52,14 @@ struct CmdLine
     char writeProjectionFlag;    /* 0=don't; 1=write Projection default IC (single slice); 2=write multi-slice */
     char readAmatrixFlag;        /* 0=compute A; 1=read A */
     char writeAmatrixFlag;
+
+    /* In case of MBIR with CNN as prior model, following fields needed for TensorFlow (TF) CNN routine */
+    /* These are provided by command line instead of parameter files */
+    char TF_gpu_flag;             /* Run Tensorflow with GPU acceleration (default) or CPU */  
+    char TF_CheckPointDir[256];   /* Directory where all checkpoint files (containing CNN model parameters) are stored */
+                                  /* While training checkpoint is written out after each epoch */
+    char TF_CheckpointState[256]; /* values are 'latest' or 'specific'. default='latest', loads most recent checkpoint */
+    int  TF_CheckpointEpochNum;   /* Not needed if CheckpointState is 'latest'. Indicates epoch number for loading specific checkpoint otherwise */ 
 };
 
 
