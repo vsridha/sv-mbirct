@@ -347,6 +347,7 @@ void CNNDenoise(struct Image3D *CleanImage, struct Image3D *NoisyImage, struct P
     char test_params[250];
     char dir_info[250];
     char dataset_info[250];
+    char ckpt_state_info[250];
 
     float lower = (float)priorparams.QuantLevel_lower;
     float upper = (float)priorparams.QuantLevel_upper;
@@ -376,10 +377,16 @@ void CNNDenoise(struct Image3D *CleanImage, struct Image3D *NoisyImage, struct P
     /* Execute CNN denoising through a Python script (located in src directory) */
 
     /* Arguments */
+    if(strcmp(priorparams.TF_CheckpointState, "latest")==0)
+        strcpy(ckpt_state_info, "--ckpt_state latest");
+    else
+        sprintf(ckpt_state_info, "--ckpt_state specific --ckpt_epoch_num %d", priorparams.TF_CheckpointEpochNum);
+
     sprintf(dir_info, " --checkpoint_dir %s ", CkptDir);
     sprintf(dataset_info, " --img_format bin --img_filename_base_in %s --img_filename_base_out %s --Nz %d --Ny %d --Nx %d --SliceNumDigits %d --FirstSliceNumber %d ", \
             fname_in, fname_out, imgparams->Nz, imgparams->Ny, imgparams->Nx, imgparams->NumSliceDigits, imgparams->FirstSliceNumber);
-    sprintf(test_params, " --is_add_noise 0 --ckpt_state latest --use_bounds 1 --lower_bound %f --upper_bound %f ", lower, upper);
+    sprintf(test_params, " --is_add_noise 0 %s --use_bounds 1 --lower_bound %f --upper_bound %f ", ckpt_state_info, lower, upper);
+    
 
     sprintf(SysCommand, "python3 %s/main_cnn.py  --use_gpu %d --phase test --sigma %d %s %s %s", SrcDir, use_gpu, Sigma_n, test_params, dir_info, dataset_info);
     system(SysCommand);
