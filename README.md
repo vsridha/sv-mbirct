@@ -66,19 +66,7 @@ To print the usage statement for the command line, from the *bin* directory type
 
 ## DESCRIPTION OF PARAMETER AND DATA FILES
 
-For a detailed description of the contents and format for all the data and parameter
-files used in this program, see the documentation in the OpenMBIR project
-referenced at the top of this readme, directly linked to 
-[here](https://github.com/cabouman/OpenMBIR/raw/master/Documentation/MBIR-Modular-specification.docx).
-Also see the [demos](https://github.com/sjkisner/mbir-demos)
-for specific examples.
-
-There are 4 files that specify the parameters for MBIR reconstruction: [.imgparams], [.sinoparams], [.reconparams] and [.priorparams].
-The [.reconparams] and [.priorparams] files must share the same file name. 
-The [.reconparams] specifies high level parameters pertaining to the iterative MBIR algorithim, including the choice of prior model.
-The [.priorparams] file specifies parameters for the prior-model selected in the [.reconparams] file.
-
-The following parameter files are required, all in simple text:
+The following 4 parameter files are required, all in simple text:
 
      <basename>.sinoparams  
      <basename>.imgparams  
@@ -86,9 +74,13 @@ The following parameter files are required, all in simple text:
      <basename>.priorparams
      <view_angles_file.txt>
 
-Note these show the same generic *basename* but the names of all
-the input files are independent as they're specified in different
+While it is recommended to use the same *basename* for all parameter files, 
+note that these input filenames are independent as they're specified in different
 arguments in the command line.
+
+However, the [.reconparams] and [.priorparams] files must share the same basename. 
+The [.reconparams] specifies high level parameters pertaining to the iterative MBIR algorithim, including the choice of prior model.
+The [.priorparams] file specifies parameters for the prior-model selected in the [.reconparams] file.
 
 For the files containing sinogram or image data,
 the associated 3D data is split across files, one file per slice.
