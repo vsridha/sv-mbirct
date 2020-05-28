@@ -1,6 +1,6 @@
 # sv-mbirct
 
-### HIGH PERFORMANCE MODEL BASED IMAGE RECONSTRUCTION (MBIR) </br> FOR PARALLEL-BEAM COMPUTED TOMOGRAPHY
+### HIGH PERFORMANCE MODEL BASED IMAGE RECONSTRUCTION (MBIR) </br> FOR PARALLEL-BEAM COMPUTED TOMOGRAPHY with Advanced Prior Models
 *Optimized for Intel multi-core processors*
 
 Source code available at:  
