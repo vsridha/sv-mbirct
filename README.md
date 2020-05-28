@@ -1,16 +1,9 @@
 # sv-mbirct
 
-### HIGH PERFORMANCE MODEL BASED IMAGE RECONSTRUCTION (MBIR) </br> FOR PARALLEL-BEAM COMPUTED TOMOGRAPHY with Advanced Prior Models
+### HIGH PERFORMANCE MODEL BASED IMAGE RECONSTRUCTION (MBIR) </br> FOR PARALLEL-BEAM COMPUTED TOMOGRAPHY WITH ADVANCED PRIOR MODELS
 *Optimized for Intel multi-core processors*
 
-Source code available at:  
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-https://github.com/sjkisner/sv-mbirct
-
-Demo scripts and data files for running this program are available
-for download under a separate repository:  
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-https://github.com/sjkisner/mbir-demos
+Demo scripts and data files for running this program are available under this repository.
 
 Further references on MBIR and the technology in the high-performance implementation of this
 code can be found at the bottom of this page, in the documentation accompanying the OpenMBIR
@@ -176,6 +169,7 @@ The following parameter files are required, all in simple text:
      <basename>.sinoparams  
      <basename>.imgparams  
      <basename>.reconparams  
+     <basename>.priorparams
      <view_angles_file.txt>
 
 Note these show the same generic *basename* but the names of all
