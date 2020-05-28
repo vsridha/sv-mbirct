@@ -46,11 +46,22 @@ https://github.com/HPImaging/sv-mbirct
 
 ## RUNNING
 
-After compilation, from the terminal prompt enter the *run* folder, and type *./runDemo.sh*
+For local computer: After compilation, from the terminal prompt enter the *run* folder and type *./runDemo.sh*
+```
+cd ../run
+./runDemo.sh
+```
 
-To print a usage statement for the command line:
+For submitting job on the Purdue cluster: After compilation, from the terminal prompt enter the *run* folder and submit the job via a submission script.
+```
+cd ../run
+sbatch jobrun.sub
+```
+The next section explains the parameter and data files required for running the MBIR algorithm.
+The demo-script throughly explains how the various files must be specified via command line.
+To print the usage statement for the command line, from the *bin* directory type:
 
-     ./mbir_ct -help
+./mbir_ct -help
 
 
 ## DESCRIPTION OF PARAMETER AND DATA FILES
