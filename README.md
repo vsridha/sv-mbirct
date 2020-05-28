@@ -58,11 +58,11 @@ cd ../run
 sbatch jobrun.sub
 ```
 The next section explains the parameter and data files required for running the MBIR algorithm.
-The demo-script throughly explains how the various files must be specified via command line.
+The demo-script thoroughly explains how the various files must be specified via command line.
 To print the usage statement for the command line, from the *bin* directory type:
-
+```
 ./mbir_ct -help
-
+```
 
 ## DESCRIPTION OF PARAMETER AND DATA FILES
 
