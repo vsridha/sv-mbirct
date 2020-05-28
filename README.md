@@ -46,98 +46,9 @@ https://github.com/HPImaging/sv-mbirct
 
 ## RUNNING
 
-To print a usage statement:
+To print a usage statement for the command line:
 
      ./mbir_ct -help
-
-The program is able to run completely with a single command call, but it's 
-usually preferrable to run the reconstruction in two stages. In the 
-first stage, the sytem matrix is precomputed and stored, and the second
-stage performs the actual reconstruction. 
-Both stages use the executable *mbir_ct*.
-The system matrix can take a significant time to compute,
-however the matrix is fixed for a given geometry and data/image 
-dimensions, so the matrix file can be reused for any scan that uses the 
-same sinogram and image parameters.
-The initial stage can also pre-compute 
-the forward projection of the default initial condition (constant image)
-to save additional time in the reconstruction stage.
-
-(Note the accompanying demo scripts include a utility that detects whether
-the necessary sytem matrix file has already been computed and is available, 
-given the input image/sino parameters, and the script automatically reads
-the file if available, or computes/stores it if not.)
-
-### Stage 1: Compute and store the System Matrix (and initial projection)
-
-    ./mbir_ct
-       -i <basename>[.imgparams]     : Input image parameters
-       -j <basename>[.sinoparams]    : Input sinogram parameters
-    (plus one or more of the following)
-       -m <basename>[.2Dsvmatrix]   : Output matrix file
-       -f <basename>[.2Dprojection]  : Output projection of default or input IC
-       -f <basename>[_sliceNNN.2Dprojection] -t <basename>[_sliceNNN.2Dimgdata]
-
-In the above arguments, the exensions given in the '[]' symbols must be part
-of the file names but should be omitted from the command line.
-In the last line that includes both -f and -t arguments, the initial 
-projection of the initial condition provided by -t is computed and 
-saved to a file(s). Further description of data/image filenames is provided
-further down.
-
-Examples: (written as if file names have been assigned 
-           to variables in a shell script)
-
-To compute/write the system matrix and the projection of the default initial condition:  
-
-    ./mbir_ct -i $parName -j $parName -m $matName -f $matName
-
-To compute/write only the system matrix:  
- 
-    ./mbir_ct -i $parName -j $parName -m $matName
-
-
-Similar to the above but the initial projection is computed for the supplied input image (-t):  
-
-    ./mbir_ct -i $parName -j $parName -m $matName -f proj/$imgName -t init/$imgName
-
-The -m option can be omitted if you only want to compute/store the
-projection, however the system matrix will need to be computed in any case.
-
-
-### Stage 2: Compute MBIR Reconstruction
-
-There are 4 files that specify the parameters for MBIR reconstruction: [.imgparams], [.sinoparams], [.reconparams] and [.priorparams].
-The [.reconparams] and [.priorparams] files must share the same file name. 
-The [.reconparams] specifies high level parameters pertaining to the iterative MBIR algorithim, including the choice of prior model.
-The [.priorparams] file specifies parameters for the prior-model selected in the [.reconparams] file.
-
-    ./mbir_ct
-       -i <basename>[.imgparams]           : Input image parameters
-       -j <basename>[.sinoparams]          : Input sinogram parameters
-       -k <basename>[.reconparams]         : Input reconstruction parameters 
-       -s <basename>[_sliceNNN.2Dsinodata] : Input sinogram projection file(s)
-       -r <basename>[_sliceNNN.2Dimgdata]  : Output reconstructed image file(s)
-    (following are optional)
-       -m <basename>[.2Dsvmatrix]          : INPUT matrix (params must match!)
-       -w <basename>[_sliceNNN.2Dweightdata] : Input sinogram weight file(s)
-       -t <basename>[_sliceNNN.2Dimgdata]  : Input initial condition image(s)
-       -e <basename>[_sliceNNN.2Dprojection] : Input projection of init. cond.
-                                           : ** default IC if -t not specified
-       -f <basename>[_sliceNNN.2Dprojection] : Output projection of final image
-       -p <basename>[_sliceNNN.2Dimgdata]  : Proximal map for Plug & Play
-                                           : * -p will apply proximal prior
-                                           : * generally use with -t -e -f
-
-Examples:
-
-    ./mbir_ct -i $parName -j $parName -k $parName -s $sinoName \
-       -w $wgtNname -r $recName -m $matName -e $projName
-
-If either -m or -e are omitted, the corresponding entity (matrix or
-projection) will be computed prior to starting the reconstruction.
-The default prior model is a q-QGGMRF with a 10-pt 3D neighborhood, unless
-the -p argument is included (Plug & Play).
 
 
 ## DESCRIPTION OF PARAMETER AND DATA FILES
@@ -148,6 +59,11 @@ referenced at the top of this readme, directly linked to
 [here](https://github.com/cabouman/OpenMBIR/raw/master/Documentation/MBIR-Modular-specification.docx).
 Also see the [demos](https://github.com/sjkisner/mbir-demos)
 for specific examples.
+
+There are 4 files that specify the parameters for MBIR reconstruction: [.imgparams], [.sinoparams], [.reconparams] and [.priorparams].
+The [.reconparams] and [.priorparams] files must share the same file name. 
+The [.reconparams] specifies high level parameters pertaining to the iterative MBIR algorithim, including the choice of prior model.
+The [.priorparams] file specifies parameters for the prior-model selected in the [.reconparams] file.
 
 The following parameter files are required, all in simple text:
 
@@ -176,7 +92,10 @@ spaces (e.g. 0000 to 0513).
 The number of digits used for the slice indices is flexible (up to 4) 
 but must be consistent across all the files used in a given reconstruction call.
 
-
+Note that the accompanying demo scripts include a utility that detects whether
+the necessary sytem matrix file has already been computed and is available, 
+given the input image/sino parameters, and the script automatically reads
+the file if available, or computes/stores it if not.
 
 ## References
 
