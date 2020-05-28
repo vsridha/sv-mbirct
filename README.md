@@ -102,6 +102,15 @@ the necessary sytem matrix file has already been computed and is available,
 given the input image/sino parameters, and the script automatically reads
 the file if available, or computes/stores it if not.
 
+If the choice of prior-model for MBIR in the [.reconparams] is "CNN", then the CNN model parameters are required.
+For the accompanying demo, we pre-trained the CNN. 
+The CNN parameters are stored as TensorFlow checkpoint files under the directory 
+
+     ./data/TF_checkpoint/sigma_<noiselevel>
+
+where <noiselevel> is a positive integer between 1-255 specified by the <sigma_n> parameter in the [.priorparams].
+
+
 ## References
 
 ##### Xiao Wang, Amit Sabne, Putt Sakdhnagool, Sherman J. Kisner, Charles A. Bouman, and Samuel P. Midkiff, "Massively Parallel 3D Image Reconstruction," *Proceedings of the International Conference for High Performance Computing, Networking, Storage and Analysis (SC'17)*, November 13-16, 2017. (One of three finalists for 2017 ACM Gordon Bell Prize.)
