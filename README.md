@@ -22,9 +22,14 @@ http://engineering.purdue.edu/~bouman/publications/pdf/MBIP-book.pdf
 1. Intel-based CPU(s)
 2. Intel "icc" compiler (included in "Parallel Studio XE", available from Intel for Linux, macOS)
 
-For using advanced prior models the following Python version and libararies are required:
+For using advanced prior models (BM3D and Deep Resnet CNN) the following Python version and libararies are required:
 1. Python 3.5 (recommended) or greater
-2. 
+2. numpy
+3. scipy
+4. matplotlib
+5. pillow
+6. pywavelets
+7. tensorflow-gpu or tensorflow 
 
 ## COMPILING
 
@@ -35,7 +40,6 @@ the *bin* folder.
 cd src  
 make
 ```
-
 Note: In case of compilation issues when using Parallel Studio XE, refer to
 https://github.com/HPImaging/sv-mbirct
 
@@ -103,10 +107,14 @@ projection, however the system matrix will need to be computed in any case.
 
 ### Stage 2: Compute MBIR Reconstruction
 
+There are files that specify the parameters for MBIR reconstruction: [.imgparams], [.sinoparams], [.reconparams] and [.priorparams]
+The [.priorparams] file must have the same filename as the [.reconparams] file. 
+The type of prior-model is specified by the latter, based on which relevant fields are parsed from the former during execution. 
+
     ./mbir_ct
        -i <basename>[.imgparams]           : Input image parameters
        -j <basename>[.sinoparams]          : Input sinogram parameters
-       -k <basename>[.reconparams]         : Input reconstruction parameters
+       -k <basename>[.reconparams]         : Input reconstruction parameters 
        -s <basename>[_sliceNNN.2Dsinodata] : Input sinogram projection file(s)
        -r <basename>[_sliceNNN.2Dimgdata]  : Output reconstructed image file(s)
     (following are optional)
