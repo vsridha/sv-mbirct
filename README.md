@@ -22,9 +22,13 @@ http://engineering.purdue.edu/~bouman/publications/pdf/MBIP-book.pdf
 1. Intel-based CPU(s)
 2. Intel "icc" compiler (included in "Parallel Studio XE", available from Intel for Linux, macOS)
 
+For using advanced prior models the following Python version and libararies are required:
+1. Python 3.5 (recommended) or greater
+2. 
+
 ## COMPILING
 
-1. From a terminal prompt, enter the *src* folder and type *make*. If
+From a terminal prompt, enter the *src* folder and type *make*. If
 compiling is successful the binary *mbir_ct* will be created and moved into
 the *bin* folder. 
 ```
@@ -32,17 +36,9 @@ cd src
 make
 ```
 
-Note: Initially after installing Parallel Studio XE, there may be complaints
-of missing libraries when linking and running the code.
-Most issues can be resolved by executing the following line, which should be
-included in your .profile (or .bashrc, or whatever relevant resource file
-is executed each time a shell is launched).
-```
-source /opt/intel/bin/compilervars.sh intel64
-```
-The path above assumes the install point for Parallel Studio XE was "/opt",
-which is the default for Linux and macOS. If not, you may need to poke around
-to find the location of "compilervars.sh".
+Note: In case of compilation issues when using Parallel Studio XE, refer to
+https://github.com/HPImaging/sv-mbirct
+
 
 ## RUNNING
 
@@ -134,26 +130,6 @@ projection) will be computed prior to starting the reconstruction.
 The default prior model is a q-QGGMRF with a 10-pt 3D neighborhood, unless
 the -p argument is included (Plug & Play).
 
-### Useful forms for Plug & Play mode
-
-The program can perform the inversion step for Plug & Play MBIR. 
-The argument -t specifies the initial image state,
-and the -r argument specifies the output.
-
-The following example uses the same file names for the input 
-(initial state) and the output. These file names can be different
-if you want to save the intermediate image state in each ADMM iteration.
-
-    ./mbir_ct -i $parName -j $parName -k $parName -s $sinoName \
-       -w $wgtName -m $matName -p $proxmapName -t $imgName -r $imgName
-
-The following form also reads in the projection (-e) of the input image state,
-and writes out the projection of the final image state (-f) so that the
-projection doesn't have to be re-computed in each *mbir_ct* call.
-
-    ./mbir_ct -i $parName -j $parName -k $parName -s $sinoName \
-       -w $wgtName -m $matName -p $proxmapName -t $imgName -r $imgName \
-       -e $projName -f $projName
 
 ## DESCRIPTION OF PARAMETER AND DATA FILES
 
