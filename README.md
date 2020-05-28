@@ -108,8 +108,9 @@ projection, however the system matrix will need to be computed in any case.
 ### Stage 2: Compute MBIR Reconstruction
 
 There are files that specify the parameters for MBIR reconstruction: [.imgparams], [.sinoparams], [.reconparams] and [.priorparams].
-The [.priorparams] file must have the same filename as the [.reconparams] file. 
-The type of prior-model is specified by the latter, based on which relevant fields are parsed from the former during execution. 
+The [.reconparams] and [.priorparams] files must share the same file name. 
+The [.reconparams] specifies high level parameters pertaining to the iterative MBIR algorithim, including the choice of prior model.
+The [.priorparams] file specifies parameters for the prior-model selected in the [.reconparams] file.
 
     ./mbir_ct
        -i <basename>[.imgparams]           : Input image parameters
