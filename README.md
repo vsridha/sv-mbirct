@@ -46,6 +46,8 @@ https://github.com/HPImaging/sv-mbirct
 
 ## RUNNING
 
+After compilation, from the terminal prompt enter the *run* folder, and type *./runDemo.sh*
+
 To print a usage statement for the command line:
 
      ./mbir_ct -help
