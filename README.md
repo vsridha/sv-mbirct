@@ -114,9 +114,9 @@ where <noiselevel> is a positive integer between 1-255 specified by the <sigma_n
      <Checkpoint_basename>-<EpochNum>.meta
      <Checkpoint_basename>-<EpochNum>.data
 
-By default, the model pertaining to the latest training epoch is loaded. However, if neeeded, there is also a simple way to load the model pertaining to a specific epoch (see command line structure in accompanying demo script).
+By default, the model pertaining to the latest training epoch is loaded. However, if neeeded, there is also a simple way to load the model pertaining to a specific epoch (see command line usage in accompanying demo script).
 
-By default, GPU acceleration is enabled for the CNN TensorFlow routines. However, using only CPU processing is allowed, though it is much slower (see command line structure in accompanying demo script).
+By default, GPU acceleration is enabled for the CNN TensorFlow routines. However, using only CPU processing is allowed, though it is much slower (see command line usage in accompanying demo script).
 
 ## References
 
