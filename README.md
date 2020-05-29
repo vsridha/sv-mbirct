@@ -103,13 +103,20 @@ given the input image/sino parameters, and the script automatically reads
 the file if available, or computes/stores it if not.
 
 If the choice of prior-model for MBIR in the [.reconparams] is "CNN", then the CNN model parameters are required.
-For the accompanying demo, we pre-trained the CNN. 
+For the accompanying demo, we pre-trained the CNN for different noise levels. 
 The CNN parameters are stored as TensorFlow checkpoint files under the directory 
 
      ./data/TF_checkpoint/sigma_<noiselevel>
 
-where <noiselevel> is a positive integer between 1-255 specified by the <sigma_n> parameter in the [.priorparams].
+where <noiselevel> is a positive integer between 1-255 specified by the <sigma_n> parameter in the [.priorparams]. Within this folder there are 3 files that store the architecture and parameters of the CNN model:
+     
+     <Checkpoint_basename>-<EpochNum>.index
+     <Checkpoint_basename>-<EpochNum>.meta
+     <Checkpoint_basename>-<EpochNum>.data
 
+By default, the model pertaining to the latest training epoch is loaded. However, if neeeded, there is also a simple way to load the model pertaining to a specific epoch (see command line structure in accompanying demo script).
+
+By default, GPU acceleration is enabled for the CNN TensorFlow routines. However, using only CPU processing is allowed, though it is much slower (see command line structure in accompanying demo script).
 
 ## References
 
